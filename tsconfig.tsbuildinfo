@@ -1,0 +1,1 @@
+{"root":["./src/credentials.ts","./src/google.ts","./src/graph.ts","./src/main.ts","./src/storage-manager.ts","./src/types.ts","./src/agents/composition-agent.ts","./src/agents/continuity-manager.ts","./src/agents/scene-generator.ts"],"errors":true,"version":"5.9.3"}

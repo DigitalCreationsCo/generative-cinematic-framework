@@ -1,0 +1,27 @@
+{
+  "name": "cinematicframework",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "node dist/main.js",
+    "watch": "tsc --watch",
+    "build": "tsc -b",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@google-cloud/storage": "^7.17.3",
+    "@google/genai": "^1.30.0",
+    "@langchain/google-vertexai": "^1.0.3",
+    "@langchain/langgraph": "^1.0.2",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "dotenv": "^17.2.3",
+    "google-auth-library": "^10.5.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.1.13"
+  }
+}
