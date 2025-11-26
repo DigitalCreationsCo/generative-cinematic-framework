@@ -1,3 +1,4 @@
-node_modules
+node_modules/
 .env
 cinematicframework-2ce11ec0961a.json
+dist/
