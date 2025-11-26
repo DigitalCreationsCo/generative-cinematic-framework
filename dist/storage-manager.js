@@ -140,3 +140,4 @@ var GCPStorageManager = /** @class */ (function () {
     return GCPStorageManager;
 }());
 exports.GCPStorageManager = GCPStorageManager;
+//# sourceMappingURL=storage-manager.js.map

@@ -1,20 +1,23 @@
-import { VertexAI } from "@langchain/google-vertexai";
 import { Scene } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { promises as fs } from "fs";
 import path from "path";
+import { GoogleGenAI } from "@google/genai";
 
 // ============================================================================
 // SCENE GENERATOR AGENT
 // ============================================================================
 
 export class SceneGeneratorAgent {
-    private storageManager: GCPStorageManager;
-    private videoModel: VertexAI;
+    private storageManager;
+    private llm;
 
-    constructor(storageManager: GCPStorageManager, videoModel: VertexAI) {
+    constructor(
+        llm: GoogleGenAI,
+        storageManager: GCPStorageManager
+    ) {
         this.storageManager = storageManager;
-        this.videoModel = videoModel;
+        this.llm = llm;
     }
 
     async generateScene(
@@ -26,8 +29,11 @@ export class SceneGeneratorAgent {
         console.log(`\n🎬 Generating Scene ${scene.id}: ${scene.timeStart} - ${scene.timeEnd}`);
         console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-        const videoResult = await this.videoModel.invoke(enhancedPrompt);
-        const videoBuffer = Buffer.from(videoResult, "base64");
+        const model = this.llm.getGenerativeModel({ model: "veo" });
+        const response = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+        });
+        const videoBuffer = Buffer.from(response.response.text(), "base64");
 
         const videoPath = `video/${projectId}/clips/scene_${scene.id.toString().padStart(3, "0")}.mp4`;
         const mimeType = "video/mp4";

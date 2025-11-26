@@ -62,7 +62,7 @@ var storage_manager_1 = require("./storage-manager");
 var composition_agent_1 = require("./agents/composition-agent");
 var continuity_manager_1 = require("./agents/continuity-manager");
 var scene_generator_1 = require("./agents/scene-generator");
-var google_1 = require("./google");
+var genai_1 = require("@google/genai");
 // ============================================================================
 // LANGGRAPH WORKFLOW
 // ============================================================================
@@ -70,9 +70,10 @@ var CinematicVideoWorkflow = /** @class */ (function () {
     function CinematicVideoWorkflow(projectId, bucketName, location) {
         if (location === void 0) { location = "us-central1"; }
         this.storageManager = new storage_manager_1.GCPStorageManager(projectId, bucketName);
-        this.compositionalAgent = new composition_agent_1.CompositionalAgent(google_1.llm, this.storageManager);
-        this.continuityAgent = new continuity_manager_1.ContinuityManagerAgent(google_1.llm, google_1.imageModel, this.storageManager);
-        this.sceneAgent = new scene_generator_1.SceneGeneratorAgent(this.storageManager, google_1.videoModel);
+        var llm = new genai_1.GoogleGenAI({ googleAuthOptions: { projectId: projectId } });
+        this.compositionalAgent = new composition_agent_1.CompositionalAgent(llm, this.storageManager);
+        this.continuityAgent = new continuity_manager_1.ContinuityManagerAgent(llm, this.storageManager);
+        this.sceneAgent = new scene_generator_1.SceneGeneratorAgent(llm, this.storageManager);
         this.graph = this.buildGraph();
     }
     CinematicVideoWorkflow.prototype.buildGraph = function () {
@@ -217,3 +218,4 @@ var CinematicVideoWorkflow = /** @class */ (function () {
     return CinematicVideoWorkflow;
 }());
 exports.CinematicVideoWorkflow = CinematicVideoWorkflow;
+//# sourceMappingURL=graph.js.map

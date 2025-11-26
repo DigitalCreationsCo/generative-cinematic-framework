@@ -1,25 +1,21 @@
-import { GoogleGenAI } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Character, ContinuityContext, Scene } from "../types";
-import { VertexAI } from "@langchain/google-vertexai";
+import { GoogleGenAI } from "@google/genai";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
 // ============================================================================
 
 export class ContinuityManagerAgent {
-    private llm: VertexAI;
-    private imageModel: VertexAI;
-    private storageManager: GCPStorageManager;
+    private storageManager;
+    private llm;
 
     constructor(
-        llm: VertexAI,
-        imageModel: VertexAI,
+        llm: GoogleGenAI,
         storageManager: GCPStorageManager
     ) {
-        this.llm = llm;
-        this.imageModel = imageModel;
         this.storageManager = storageManager;
+        this.llm = llm;
     }
 
     async generateCharacterReferences(
@@ -38,8 +34,11 @@ export class ContinuityManagerAgent {
 
             try {
                 // Generate high-resolution reference image
-                const imageData = await this.imageModel.invoke(imagePrompt, {});
-                const buffer = Buffer.from(imageData, "base64");
+                const model = this.llm.getGenerativeModel({ model: "imagen-2.0" });
+                const response = await model.generateContent({
+                    contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+                });
+                const buffer = Buffer.from(response.response.text(), "base64");
 
                 // Upload to GCS
                 const imagePath = `video/${projectId}/images/characters/${character.id}_reference.png`;
@@ -151,12 +150,14 @@ ${scene.continuityNotes.join("\n")}
 
 Enhance this prompt with precise continuity details for AI video generation.`;
 
-        const response = await this.llm.invoke([
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-        ]);
+        const model = this.llm.getGenerativeModel({ model: "gemini-1.5-pro" });
+        const response = await model.generateContent({
+            contents: [
+                { role: "user", parts: [{ text: systemPrompt }, { text: userPrompt }] },
+            ],
+        });
 
-        return response as string;
+        return response.response.text();
     }
 
     updateContinuityContext(

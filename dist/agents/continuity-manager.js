@@ -52,14 +52,13 @@ exports.ContinuityManagerAgent = void 0;
 // CONTINUITY MANAGER AGENT
 // ============================================================================
 var ContinuityManagerAgent = /** @class */ (function () {
-    function ContinuityManagerAgent(llm, imageModel, storageManager) {
-        this.llm = llm;
-        this.imageModel = imageModel;
+    function ContinuityManagerAgent(llm, storageManager) {
         this.storageManager = storageManager;
+        this.llm = llm;
     }
     ContinuityManagerAgent.prototype.generateCharacterReferences = function (characters, projectId) {
         return __awaiter(this, void 0, void 0, function () {
-            var updatedCharacters, _i, characters_1, character, imagePrompt, imageData, buffer, imagePath, mimeType, imageUrl, error_1;
+            var updatedCharacters, _i, characters_1, character, imagePrompt, model, response, buffer, imagePath, mimeType, imageUrl, error_1;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -75,10 +74,13 @@ var ContinuityManagerAgent = /** @class */ (function () {
                         _a.label = 2;
                     case 2:
                         _a.trys.push([2, 5, , 6]);
-                        return [4 /*yield*/, this.imageModel.invoke(imagePrompt, {})];
+                        model = this.llm.getGenerativeModel({ model: "imagen-2.0" });
+                        return [4 /*yield*/, model.generateContent({
+                                contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+                            })];
                     case 3:
-                        imageData = _a.sent();
-                        buffer = Buffer.from(imageData, "base64");
+                        response = _a.sent();
+                        buffer = Buffer.from(response.response.text(), "base64");
                         imagePath = "video/".concat(projectId, "/images/characters/").concat(character.id, "_reference.png");
                         mimeType = "image/png";
                         return [4 /*yield*/, this.storageManager.uploadBuffer(buffer, imagePath, mimeType)];
@@ -106,7 +108,7 @@ var ContinuityManagerAgent = /** @class */ (function () {
     };
     ContinuityManagerAgent.prototype.enhanceScenePrompt = function (scene, characters, context) {
         return __awaiter(this, void 0, void 0, function () {
-            var systemPrompt, characterDetails, contextInfo, userPrompt, response;
+            var systemPrompt, characterDetails, contextInfo, userPrompt, model, response;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -124,13 +126,15 @@ var ContinuityManagerAgent = /** @class */ (function () {
                             ? "\nPrevious Scene (".concat(context.previousScene.id, "):\n- Description: ").concat(context.previousScene.description, "\n- Lighting: ").concat(context.previousScene.lighting, "\n- Camera: ").concat(context.previousScene.cameraMovement, "\n- Last frame available at: ").concat(context.previousScene.lastFrameUrl || "N/A")
                             : "This is the first scene.";
                         userPrompt = "\nBase Scene Description:\n".concat(scene.description, "\n\nShot Type: ").concat(scene.shotType, "\nCamera Movement: ").concat(scene.cameraMovement, "\nLighting: ").concat(scene.lighting, "\nMood: ").concat(scene.mood, "\n\nCharacters Present:\n").concat(characterDetails, "\n\nContext:\n").concat(contextInfo, "\n\nContinuity Notes:\n").concat(scene.continuityNotes.join("\n"), "\n\nEnhance this prompt with precise continuity details for AI video generation.");
-                        return [4 /*yield*/, this.llm.invoke([
-                                { role: "system", content: systemPrompt },
-                                { role: "user", content: userPrompt },
-                            ])];
+                        model = this.llm.getGenerativeModel({ model: "gemini-1.5-pro" });
+                        return [4 /*yield*/, model.generateContent({
+                                contents: [
+                                    { role: "user", parts: [{ text: systemPrompt }, { text: userPrompt }] },
+                                ],
+                            })];
                     case 1:
                         response = _a.sent();
-                        return [2 /*return*/, response];
+                        return [2 /*return*/, response.response.text()];
                 }
             });
         });
@@ -158,3 +162,4 @@ var ContinuityManagerAgent = /** @class */ (function () {
     return ContinuityManagerAgent;
 }());
 exports.ContinuityManagerAgent = ContinuityManagerAgent;
+//# sourceMappingURL=continuity-manager.js.map

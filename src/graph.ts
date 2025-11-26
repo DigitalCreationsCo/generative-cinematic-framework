@@ -1,11 +1,10 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
-import { GoogleGenAI } from "@google/genai";
 import { GCPStorageManager } from "./storage-manager";
 import { CompositionalAgent } from "./agents/composition-agent";
 import { ContinuityManagerAgent } from "./agents/continuity-manager";
 import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { GraphState } from "./types";
-import { llm, imageModel, videoModel } from "./google";
+import { GoogleGenAI } from "@google/genai";
 
 // ============================================================================
 // LANGGRAPH WORKFLOW
@@ -24,14 +23,11 @@ export class CinematicVideoWorkflow {
         location: string = "us-central1"
     ) {
         this.storageManager = new GCPStorageManager(projectId, bucketName);
+        const llm = new GoogleGenAI({ googleAuthOptions: { projectId } });
 
         this.compositionalAgent = new CompositionalAgent(llm, this.storageManager);
-        this.continuityAgent = new ContinuityManagerAgent(
-            llm,
-            imageModel,
-            this.storageManager
-        );
-        this.sceneAgent = new SceneGeneratorAgent(this.storageManager, videoModel);
+        this.continuityAgent = new ContinuityManagerAgent(llm, this.storageManager);
+        this.sceneAgent = new SceneGeneratorAgent(llm, this.storageManager);
 
         this.graph = this.buildGraph();
     }

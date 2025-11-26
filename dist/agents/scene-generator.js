@@ -90,22 +90,25 @@ var path_1 = __importDefault(require("path"));
 // SCENE GENERATOR AGENT
 // ============================================================================
 var SceneGeneratorAgent = /** @class */ (function () {
-    function SceneGeneratorAgent(storageManager, videoModel) {
+    function SceneGeneratorAgent(llm, storageManager) {
         this.storageManager = storageManager;
-        this.videoModel = videoModel;
+        this.llm = llm;
     }
     SceneGeneratorAgent.prototype.generateScene = function (scene, enhancedPrompt, projectId, previousFrameUrl) {
         return __awaiter(this, void 0, void 0, function () {
-            var videoResult, videoBuffer, videoPath, mimeType, videoUrl, lastFrameUrl;
+            var model, response, videoBuffer, videoPath, mimeType, videoUrl, lastFrameUrl;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
                         console.log("\n\uD83C\uDFAC Generating Scene ".concat(scene.id, ": ").concat(scene.timeStart, " - ").concat(scene.timeEnd));
                         console.log("   Duration: ".concat(scene.duration, "s | Shot: ").concat(scene.shotType));
-                        return [4 /*yield*/, this.videoModel.invoke(enhancedPrompt)];
+                        model = this.llm.getGenerativeModel({ model: "veo" });
+                        return [4 /*yield*/, model.generateContent({
+                                contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+                            })];
                     case 1:
-                        videoResult = _a.sent();
-                        videoBuffer = Buffer.from(videoResult, "base64");
+                        response = _a.sent();
+                        videoBuffer = Buffer.from(response.response.text(), "base64");
                         videoPath = "video/".concat(projectId, "/clips/scene_").concat(scene.id.toString().padStart(3, "0"), ".mp4");
                         mimeType = "video/mp4";
                         return [4 /*yield*/, this.storageManager.uploadBuffer(videoBuffer, videoPath, mimeType)];
@@ -182,3 +185,4 @@ var SceneGeneratorAgent = /** @class */ (function () {
     return SceneGeneratorAgent;
 }());
 exports.SceneGeneratorAgent = SceneGeneratorAgent;
+//# sourceMappingURL=scene-generator.js.map

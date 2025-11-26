@@ -1,18 +1,19 @@
-import { VertexAI } from "@langchain/google-vertexai";
 import { GCPStorageManager } from "../storage-manager";
 import { Storyboard } from "../types";
+import { safeJsonParse } from "../utils";
+import { GoogleGenAI } from "@google/genai";
 
 // ============================================================================
 // COMPOSITIONAL AGENT
 // ============================================================================
 
 export class CompositionalAgent {
-  private llm: VertexAI;
   private storageManager: GCPStorageManager;
+  private llm: GoogleGenAI;
 
-  constructor(llm: VertexAI, storageManager: GCPStorageManager) {
-    this.llm = llm;
+  constructor(llm: GoogleGenAI, storageManager: GCPStorageManager) {
     this.storageManager = storageManager;
+    this.llm = llm;
   }
 
   async generateStoryboard(initialPrompt: string): Promise<Storyboard> {
@@ -105,18 +106,16 @@ Examples of inference:
 - "00:00 - 00:18 explosive opening" → KeyMoment: {timeStart: "00:00", timeEnd: "00:18", description: "Explosive opening with driving guitar riffs"}
 `;
 
-    const response = await this.llm.invoke([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: initialPrompt },
-    ]);
-
-    const content = response as string;
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Failed to extract JSON from LLM response");
-    }
-
-    const storyboard = JSON.parse(jsonMatch[ 0 ]) as Storyboard;
+    const model = this.llm.models.generateContent({ model: "gemini-1.5-pro" });
+    const response = await model.generateContent({
+      contents: [
+        { role: "user", parts: [{ text: systemPrompt }, { text: initialPrompt }] },
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+      },
+    });
+    const storyboard = safeJsonParse<Storyboard>(response.response.text());
 
     // Save storyboard to GCP
     const storyboardPath = `video/${Date.now()}/scenes/storyboard.json`;

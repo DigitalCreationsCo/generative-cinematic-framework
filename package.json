@@ -16,6 +16,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/storage": "^7.17.3",
     "@google/genai": "^1.30.0",
+    "@langchain/google-genai": "^2.0.0",
     "@langchain/google-vertexai": "^1.0.3",
     "@langchain/langgraph": "^1.0.2",
     "@types/fluent-ffmpeg": "^2.1.28",
