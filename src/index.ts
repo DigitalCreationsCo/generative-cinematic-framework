@@ -23,7 +23,7 @@ import {
 import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { CompositionalAgent } from "./agents/compositional-agent";
 import { ContinuityManagerAgent } from "./agents/continuity-manager";
-import { GCPStorageManager } from "./storage.manager";
+import { GCPStorageManager } from "./storage-manager";
 
 import * as dotenv from "dotenv";
 dotenv.config();

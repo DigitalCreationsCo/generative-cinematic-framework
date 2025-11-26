@@ -4,7 +4,7 @@ import {
   StoryboardSchema,
   zodToJSONSchema,
 } from "../types";
-import { GCPStorageManager } from "../storage.manager";
+import { GCPStorageManager } from "../storage-manager";
 import { buildllmParams } from "../llm-params";
 import { cleanJsonOutput } from "../utils";
 

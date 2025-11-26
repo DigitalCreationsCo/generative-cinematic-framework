@@ -1,5 +1,5 @@
 import { GoogleGenAI, PersonGeneration } from "@google/genai";
-import { GCPStorageManager } from "../storage.manager";
+import { GCPStorageManager } from "../storage-manager";
 import { Scene } from "../types";
 import ffmpeg from "fluent-ffmpeg";
 import { buildllmParams, buildVideoGenerationParams } from "../llm-params";

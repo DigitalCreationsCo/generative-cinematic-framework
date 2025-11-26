@@ -3,7 +3,7 @@ import {
     Scene,
     ContinuityContext,
 } from "../types";
-import { GCPStorageManager } from "../storage.manager";
+import { GCPStorageManager } from "../storage-manager";
 import { GoogleGenAI } from "@google/genai";
 import { buildImageGenerationParams, buildllmParams } from "../llm-params";
 import { cleanJsonOutput } from "../utils";
