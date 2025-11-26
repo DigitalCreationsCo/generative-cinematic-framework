@@ -5,8 +5,9 @@ export const zodToJSONSchema = (schema: z.core.$ZodType) => z.toJSONSchema(schem
 export const CharacterSchema = z.object({
   id: z.string().describe("unique identifier for the character (e.g. char_1)"),
   name: z.string().describe("character name"),
+  aliases: z.array(z.string()).describe("list of aliases for the character"),
   description: z.string().describe("detailed physical description"),
-  referenceImageUrl: z.string().describe("URL to a reference image for the character (optional)").optional(),
+  referenceImageUrls: z.array(z.string()).describe("URLs to reference images for the character").optional(),
   physicalTraits: z.object({
     hair: z.string().describe("specific hairstyle, color, length"),
     clothing: z.string().describe("specific outfit description"),
@@ -113,3 +114,8 @@ export const GraphStateSchema = z.object({
   errors: z.array(z.string()),
 });
 export type GraphState = z.infer<typeof GraphStateSchema>;
+
+export const CastListSchema = z.object({
+    characters: z.array(CharacterSchema),
+});
+export type CastList = z.infer<typeof CastListSchema>;

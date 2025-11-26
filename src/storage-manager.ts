@@ -7,7 +7,8 @@ export type GcsObjectType =
   | 'character_image'
   | 'scene_video'
   | 'scene_last_frame'
-  | 'stitched_video';
+  | 'stitched_video'
+  | 'composite_frame';
 
 // ============================================================================
 // GCP STORAGE MANAGER
@@ -110,25 +111,29 @@ export class GCPStorageManager {
     switch (type) {
       case 'storyboard':
         return `${basePath}/scenes/storyboard.json`;
-
-      case 'final_output':
-        return `${basePath}/scenes/final_output.json`;
-
+        
       case 'character_image':
         if (!params.characterId) throw new Error('characterId is required for character_image');
         return `${basePath}/images/characters/${params.characterId}_reference.png`;
-
-      case 'scene_video':
-        if (params.sceneId === undefined) throw new Error('sceneId is required for scene_video');
-        return `${basePath}/clips/scene_${params.sceneId.toString().padStart(3, '0')}.mp4`;
-
+        
       case 'scene_last_frame':
         if (params.sceneId === undefined) throw new Error('sceneId is required for scene_last_frame');
-        return `${basePath}/clips/scene_${params.sceneId.toString().padStart(3, '0')}_lastframe.jpg`;
-
+        return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_lastframe.jpg`;
+          
+      case 'composite_frame':
+        if (params.sceneId === undefined) throw new Error('sceneId is required for composite_frame');
+        return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_composite.jpg`;
+        
+      case 'scene_video':
+        if (params.sceneId === undefined) throw new Error('sceneId is required for scene_video');
+        return `${basePath}/scenes/scene_${params.sceneId.toString().padStart(3, '0')}.mp4`;
+      
       case 'stitched_video':
         return `${basePath}/final/movie.mp4`;
-
+        
+      case 'final_output':
+        return `${basePath}/final/final_output.json`;
+      
       default:
         throw new Error(`Unknown GCS object type: ${type}`);
     }

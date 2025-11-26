@@ -1,4 +1,4 @@
-import { GenerateContentParameters, GenerateImagesParameters, GenerateVideosParameters, HarmBlockMethod, HarmBlockThreshold, HarmCategory, Modality } from "@google/genai";
+import { GenerateContentParameters, GenerateImagesParameters, GenerateVideosParameters, HarmBlockMethod, HarmBlockThreshold, HarmCategory, Modality, Part } from "@google/genai";
 
 export const buildllmParams = (params: { contents: GenerateContentParameters[ 'contents' ]; } & Partial<GenerateContentParameters>): GenerateContentParameters => ({
     model: "gemini-2.5-pro",
@@ -16,7 +16,7 @@ export const buildllmParams = (params: { contents: GenerateContentParameters[ 'c
         ...params.config
     }
 });
-export const buildImageGenerationParams = (params: { prompt: GenerateImagesParameters[ 'prompt' ]; } & Partial<GenerateImagesParameters>): GenerateImagesParameters => ({
+export const buildImageGenerationParams = (params: { prompt: GenerateImagesParameters[ 'prompt' ] | Part[]; } & Partial<GenerateImagesParameters>): GenerateImagesParameters => ({
     model: "imagen-3.0-generate-002",
     ...params,
     config: {

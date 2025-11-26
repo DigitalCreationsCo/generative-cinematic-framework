@@ -2,11 +2,13 @@ import {
     Character,
     Scene,
     ContinuityContext,
+    CastList,
 } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { GoogleGenAI } from "@google/genai";
 import { buildImageGenerationParams, buildllmParams } from "../llm-params";
 import { cleanJsonOutput } from "../utils";
+import { FrameCompositionAgent } from "./frame-composition-agent";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
@@ -16,17 +18,51 @@ export class ContinuityManagerAgent {
     private llm: GoogleGenAI;
     private imageModel: GoogleGenAI;
     private storageManager: GCPStorageManager;
+    private frameComposer: FrameCompositionAgent;
     private ASSET_GEN_TIMEOUT_MS = 30000;
 
     constructor(
         llm: GoogleGenAI,
         imageModel: GoogleGenAI,
-        storageManager: GCPStorageManager
+        storageManager: GCPStorageManager,
+        frameComposer: FrameCompositionAgent
     ) {
         this.llm = llm;
         this.imageModel = imageModel;
         this.storageManager = storageManager;
+        this.frameComposer = frameComposer;
     }
+
+    async prepareSceneInputs(
+        scene: Scene,
+        characters: Character[],
+        context: ContinuityContext,
+        castList: CastList
+    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string }> {
+        let startFrameUrl = context.previousScene?.lastFrameUrl;
+
+        // Check if any character in the scene requires a composite frame
+        const charactersInScene = castList.characters.filter(char =>
+            scene.charactersPresent.includes(char.id)
+        );
+
+        if (charactersInScene.length > 0 && startFrameUrl) {
+            console.log(`   [ContinuityManager] Character(s) detected in scene ${scene.id}. Generating composite frame...`);
+            const allReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
+            if (allReferenceUrls.length > 0) {
+                startFrameUrl = await this.frameComposer.generateCompositeReferenceFrame(
+                    startFrameUrl,
+                    allReferenceUrls,
+                    scene.id
+                );
+            }
+        }
+
+        const enhancedPrompt = await this.enhanceScenePrompt(scene, characters, context);
+
+        return { enhancedPrompt, startFrameUrl };
+    }
+
 
     async generateCharacterReferences(
         characters: Character[],
@@ -55,10 +91,10 @@ export class ContinuityManagerAgent {
                 });
 
                 const response = await this.imageModel.models.generateImages(imageGenParams);
-                if (!response.generatedImages?.[ 0 ]?.image?.imageBytes) {
+                if (!response.generatedImages?.[0]?.image?.imageBytes) {
                     throw new Error("No image generated");
                 }
-                const buffer = Buffer.from(response.generatedImages[ 0 ].image.imageBytes, "base64");
+                const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, "base64");
 
                 // Upload to GCS
                 const imagePath = this.storageManager.getGcsObjectPath("character_image", { characterId: character.id });
@@ -70,7 +106,7 @@ export class ContinuityManagerAgent {
 
                 updatedCharacters.push({
                     ...character,
-                    referenceImageUrl: imageUrl,
+                    referenceImageUrls: [imageUrl],
                 });
 
                 console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
@@ -80,7 +116,7 @@ export class ContinuityManagerAgent {
                 // Continue with empty reference
                 updatedCharacters.push({
                     ...character,
-                    referenceImageUrl: "",
+                    referenceImageUrls: [],
                 });
             } finally {
                 console.log(`   ... waiting ${this.ASSET_GEN_TIMEOUT_MS / 1000}s for rate limit reset`);
@@ -119,7 +155,7 @@ export class ContinuityManagerAgent {
                 const state = context.characterStates.get(charId);
                 return `
     Character: ${char.name} (ID: ${char.id})
-    - Reference Image: ${char.referenceImageUrl}
+    - Reference Images: ${(char.referenceImageUrls || []).join(", ")}
     - Hair: ${state?.currentAppearance.hair || char.physicalTraits.hair}
     - Clothing: ${state?.currentAppearance.clothing || char.physicalTraits.clothing}
     - Accessories: ${(state?.currentAppearance.accessories || char.physicalTraits.accessories).join(", ")}

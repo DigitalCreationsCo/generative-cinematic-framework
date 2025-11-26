@@ -23,6 +23,7 @@ import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { CompositionalAgent } from "./agents/compositional-agent";
 import { ContinuityManagerAgent } from "./agents/continuity-manager";
 import { GCPStorageManager } from "./storage-manager";
+import { FrameCompositionAgent } from "./agents/frame-composition-agent";
 
 import * as dotenv from "dotenv";
 dotenv.config();
@@ -33,6 +34,7 @@ class CinematicVideoWorkflow {
   private continuityAgent: ContinuityManagerAgent;
   private sceneAgent: SceneGeneratorAgent;
   private storageManager: GCPStorageManager;
+  private frameCompositionAgent: FrameCompositionAgent;
   private projectId: string;
   private videoId: string;
   private SCENE_GEN_TIMEOUT_MS = 30000;
@@ -54,10 +56,12 @@ class CinematicVideoWorkflow {
     this.storageManager = new GCPStorageManager(projectId, videoId, bucketName);
 
     this.compositionalAgent = new CompositionalAgent(llm, this.storageManager);
+    this.frameCompositionAgent = new FrameCompositionAgent(llm, this.storageManager);
     this.continuityAgent = new ContinuityManagerAgent(
       llm,
       llm,
-      this.storageManager
+      this.storageManager,
+      this.frameCompositionAgent
     );
     this.sceneAgent = new SceneGeneratorAgent(llm, llm, this.storageManager);
 
@@ -119,17 +123,17 @@ class CinematicVideoWorkflow {
         `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboard.scenes.length}`
       );
 
-      const enhancedPrompt = await this.continuityAgent.enhanceScenePrompt(
+      const { enhancedPrompt, startFrameUrl } = await this.continuityAgent.prepareSceneInputs(
         scene,
         state.characters,
-        state.continuityContext
+        state.continuityContext,
+        { characters: state.characters }
       );
 
-      const previousFrameUrl = state.continuityContext.previousScene?.lastFrameUrl;
       const generatedScene = await this.sceneAgent.generateScene(
         scene,
         enhancedPrompt,
-        previousFrameUrl
+        startFrameUrl
       );
 
       console.log(`   ... waiting ${this.SCENE_GEN_TIMEOUT_MS / 1000}s for rate limit reset`);
