@@ -49,6 +49,9 @@ Critical guidelines:
 9. Consider cinematic techniques: shot composition, camera angles, lighting
 10. Match scene pacing to audio/mood requirements
 11. You are aware of the length limitations of video generation and are adept at creating continuous from multiple generated videos.
+12. MASTER CINEMATIC TRANSITIONS: Select transitions that enhance the narrative and emotional impact.
+    - USE SMOOTH/EASING TRANSITIONS (e.g., Dissolve, Fade, Wipe) for gradual shifts in time, location, or mood. Ideal for contemplative moments or connecting related scenes.
+    - USE SUDDEN/HARD TRANSITIONS (e.g., Hard Cut, Jump Cut, Smash Cut) for dramatic effect, high-energy sequences, or abrupt changes in perspective. Match these to sudden shifts in music or action to maximize impact.
 
 Examples of inference:
 - "Progressive metal band" → Style: "High-energy progressive metal with technical instrumentation"

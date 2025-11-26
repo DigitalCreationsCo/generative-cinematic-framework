@@ -137,6 +137,7 @@ export class SceneGeneratorAgent {
             prompt,
             image: imageParam,
             config: {
+                resolution: '720p',
                 durationSeconds,
                 numberOfVideos: 1,
                 personGeneration: PersonGeneration.ALLOW_ALL,
@@ -195,33 +196,49 @@ export class SceneGeneratorAgent {
 
             return new Promise((resolve, reject) => {
                 const framePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: sceneId });
+                let ffmpegError = '';
 
-                ffmpeg(tempVideoPath)
-                    .screenshots({
-                        timestamps: [ '99%' ],
-                        filename: `scene_${sceneId}_lastframe.jpg`,
-                        folder: '/tmp',
+                const command = ffmpeg(tempVideoPath)
+                    .on('start', function(commandLine) {
+                        console.log(`   [ffmpeg] Spawned command: ${commandLine}`);
+                    })
+                    .on('stderr', function(stderrLine) {
+                        ffmpegError += stderrLine + '\n';
+                    })
+                    .on('error', (err: Error) => {
+                        ffmpegError += err.message;
+                        // The 'error' event is the final one, so we reject here.
+                        // No need to also handle in 'end'.
+                        const finalError = new Error(`ffmpeg failed to extract frame: ${ffmpegError}`);
+                        if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
+                        if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
+                        reject(finalError);
                     })
                     .on('end', async () => {
                         try {
+                            // By the time 'end' fires, the file MUST exist.
+                            if (!fs.existsSync(tempFramePath)) {
+                                // If not, ffmpeg failed silently without triggering the 'error' event.
+                                const finalError = new Error(`Frame extraction failed. File not found at ${tempFramePath}. FFMPEG stderr:\n${ffmpegError}`);
+                                reject(finalError);
+                                return;
+                            }
+                            
                             const fileBuffer = fs.readFileSync(tempFramePath);
                             const gcsUrl = await this.storageManager.uploadBuffer(fileBuffer, framePath, "image/jpeg");
                             console.log(`   ✓ Last frame extracted: ${gcsUrl}`);
-
-                            if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
-                            if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
-
                             resolve(gcsUrl);
                         } catch (err) {
+                            reject(err);
+                        } finally {
                             if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
                             if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
-                            reject(err);
                         }
                     })
-                    .on('error', (err: Error) => {
-                        console.error(`   ✗ Failed to extract last frame for scene ${sceneId}:`, err);
-                        if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
-                        reject(err);
+                    .screenshots({
+                        timestamps: ['99%'],
+                        filename: `scene_${sceneId}_lastframe.jpg`,
+                        folder: '/tmp',
                     });
             });
         } catch (error) {
