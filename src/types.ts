@@ -1,83 +1,72 @@
 import { z } from "zod";
 
-// ============================================================================
-// CHARACTER SCHEMA
-// ============================================================================
+export const zodToJSONSchema = (schema: z.core.$ZodType) => z.toJSONSchema(schema);
+
 export const CharacterSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  referenceImageUrl: z.string(),
+  id: z.string().describe("unique identifier for the character (e.g. char_1)"),
+  name: z.string().describe("character name"),
+  description: z.string().describe("detailed physical description"),
+  referenceImageUrl: z.string().describe("URL to a reference image for the character (optional)").optional(),
   physicalTraits: z.object({
-    hair: z.string(),
-    clothing: z.string(),
-    accessories: z.array(z.string()),
-    distinctiveFeatures: z.array(z.string()),
+    hair: z.string().describe("specific hairstyle, color, length"),
+    clothing: z.string().describe("specific outfit description"),
+    accessories: z.array(z.string()).describe("list of accessories"),
+    distinctiveFeatures: z.array(z.string()).describe("list of distinctive features"),
   }),
-  appearanceNotes: z.array(z.string()),
+  appearanceNotes: z.array(z.string()).describe("additional notes on appearance"),
 });
 export type Character = z.infer<typeof CharacterSchema>;
 
-// ============================================================================
-// SCENE SCHEMA
-// ============================================================================
 export const SceneSchema = z.object({
-  id: z.number(),
-  timeStart: z.string(),
-  timeEnd: z.string(),
-  duration: z.number(),
-  shotType: z.string(),
-  description: z.string(),
-  cameraMovement: z.string(),
-  lighting: z.string(),
-  mood: z.string(),
-  audioSync: z.string(),
-  continuityNotes: z.array(z.string()),
-  charactersPresent: z.array(z.string()),
-  locationId: z.string(),
-  enhancedPrompt: z.string().optional(),
-  generatedVideoUrl: z.string().optional(),
-  lastFrameUrl: z.string().optional(),
+  id: z.number().describe("unique numeric identifier for the scene"),
+  timeStart: z.string().describe("start time in MM:SS format"),
+  timeEnd: z.string().describe("end time in MM:SS format"),
+  duration: z.union([z.literal(4), z.literal(6), z.literal(8)]).describe("duration in seconds (4, 6, or 8)"),
+  shotType: z.string().describe("camera shot type (e.g., wide, medium, close-up)"),
+  description: z.string().describe("detailed scene description"),
+  cameraMovement: z.string().describe("camera movement description (e.g., static, pan, dolly)"),
+  lighting: z.string().describe("lighting description"),
+  mood: z.string().describe("emotional tone of the scene"),
+  audioSync: z.string().describe("how visuals sync with audio"),
+  continuityNotes: z.array(z.string()).describe("notes for maintaining continuity"),
+  charactersPresent: z.array(z.string()).describe("list of character IDs present in the scene"),
+  locationId: z.string().describe("ID of the location"),
+  enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation"),
+  generatedVideoUrl: z.string().optional().describe("URL of the generated video"),
+  lastFrameUrl: z.string().optional().describe("URL of the last frame"),
 });
 export type Scene = z.infer<typeof SceneSchema>;
 
-// ============================================================================
-// VIDEO METADATA SCHEMA
-// ============================================================================
+export const KeyMomentSchema = z.object({
+  timeStart: z.string().describe("start time in MM:SS format"),
+  timeEnd: z.string().describe("end time in MM:SS format"),
+  description: z.string().describe("what happens in this key moment"),
+  importance: z.enum([ "critical", "high", "medium" ]).describe("importance level"),
+  visualPriority: z.string().describe("specific visual direction for this moment"),
+});
+export type KeyMoment = z.infer<typeof KeyMomentSchema>;
+
 export const VideoMetadataSchema = z.object({
-  title: z.string(),
-  duration: z.string(),
-  totalScenes: z.number(),
-  style: z.string(),
-  colorPalette: z.array(z.string()),
-  tags: z.array(z.string()),
-  keyMoments: z.array(
-    z.object({
-      timeStart: z.string(),
-      timeEnd: z.string(),
-      description: z.string(),
-      importance: z.enum([ "critical", "high", "medium" ]),
-      visualPriority: z.string(),
-    })
-  )
+  title: z.string().describe("title of the video"),
+  duration: z.string().describe("total duration in MM:SS format"),
+  totalScenes: z.number().describe("total number of scenes"),
+  style: z.string().describe("inferred cinematic style"),
+  mood: z.string().describe("overall emotional arc"),
+  colorPalette: z.array(z.string()).describe("list of colors in the palette"),
+  tags: z.array(z.string()).describe("list of descriptive tags"),
+  keyMoments: z.array(KeyMomentSchema).describe("list of key moments"),
 });
 export type VideoMetadata = z.infer<typeof VideoMetadataSchema>;
 
-// ============================================================================
-// LOCATION SCHEMA
-// ============================================================================
 export const LocationSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  lightingConditions: z.string(),
-  timeOfDay: z.string(),
+  id: z.string().describe("unique identifier for the location (e.g., loc_1)"),
+  name: z.string().describe("location name"),
+  description: z.string().describe("detailed location description"),
+  lightingConditions: z.string().describe("lighting conditions"),
+  timeOfDay: z.string().describe("time of day"),
 });
 export type Location = z.infer<typeof LocationSchema>;
 
-// ============================================================================
-// STORYBOARD SCHEMA
-// =_=_==========================================================================
 export const StoryboardSchema = z.object({
   metadata: VideoMetadataSchema,
   characters: z.array(CharacterSchema),
@@ -86,9 +75,6 @@ export const StoryboardSchema = z.object({
 });
 export type Storyboard = z.infer<typeof StoryboardSchema>;
 
-// ============================================================================
-// STATE SCHEMAS
-// ============================================================================
 export const CharacterStateSchema = z.object({
   lastSeen: z.number(),
   currentAppearance: z.object({
@@ -123,6 +109,7 @@ export const GraphStateSchema = z.object({
   generatedScenes: z.array(SceneSchema),
   characters: z.array(CharacterSchema),
   continuityContext: ContinuityContextSchema,
+  renderedVideoUrl: z.string().optional(),
   errors: z.array(z.string()),
 });
 export type GraphState = z.infer<typeof GraphStateSchema>;

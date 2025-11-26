@@ -1,102 +1,283 @@
-import { Scene } from "../types";
+import { GoogleGenAI, PersonGeneration } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
-import { promises as fs } from "fs";
-import path from "path";
-import { GoogleGenAI } from "@google/genai";
-
-// ============================================================================
-// SCENE GENERATOR AGENT
-// ============================================================================
+import { Scene } from "../types";
+import ffmpeg from "fluent-ffmpeg";
+import { buildllmParams, buildVideoGenerationParams } from "../llm-params";
 
 export class SceneGeneratorAgent {
-    private storageManager;
-    private llm;
+    private llm: GoogleGenAI;
+    private videoModel: GoogleGenAI;
+    private storageManager: GCPStorageManager;
 
-    constructor(
-        llm: GoogleGenAI,
-        storageManager: GCPStorageManager
-    ) {
-        this.storageManager = storageManager;
+    constructor(llm: GoogleGenAI, videoModel: GoogleGenAI, storageManager: GCPStorageManager) {
         this.llm = llm;
+        this.videoModel = videoModel;
+        this.storageManager = storageManager;
     }
 
     async generateScene(
         scene: Scene,
         enhancedPrompt: string,
-        projectId: string,
         previousFrameUrl?: string
     ): Promise<Scene> {
-        console.log(`\n🎬 Generating Scene ${scene.id}: ${scene.timeStart} - ${scene.timeEnd}`);
-        console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
+        try {
+            console.log(`\n🎬 Generating Scene ${scene.id}: ${scene.timeStart} - ${scene.timeEnd}`);
+            console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-        const model = this.llm.getGenerativeModel({ model: "veo" });
-        const response = await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
-        });
-        const videoBuffer = Buffer.from(response.response.text(), "base64");
+            const videoUrl = await this.generateVideo(
+                enhancedPrompt,
+                scene.duration,
+                scene.id,
+                previousFrameUrl
+            );
 
-        const videoPath = `video/${projectId}/clips/scene_${scene.id.toString().padStart(3, "0")}.mp4`;
-        const mimeType = "video/mp4";
-        
-        const videoUrl = await this.storageManager.uploadBuffer(
-            videoBuffer,
-            videoPath,
-            mimeType
-        );
-        console.log(`   ✓ Video generated and uploaded: ${videoUrl}`);
+            let lastFrameUrl: string | undefined;
+            try {
+                lastFrameUrl = await this.extractLastFrame(videoUrl, scene.id);
+            } catch (error) {
+                console.error(`   ⚠️ Failed to extract last frame for scene ${scene.id}, continuing without it:`, error);
+            }
 
-        const lastFrameUrl = await this.extractLastFrame(videoUrl, projectId, scene.id);
-
-        return {
-            ...scene,
-            enhancedPrompt,
-            generatedVideoUrl: videoUrl,
-            lastFrameUrl,
-        };
+            return {
+                ...scene,
+                enhancedPrompt,
+                generatedVideoUrl: videoUrl,
+                lastFrameUrl,
+            };
+        } catch (error) {
+            console.error(`   ✗ Failed to generate scene ${scene.id}:`, error);
+            throw error; // Re-throw to be handled by the workflow
+        }
     }
 
-    private async extractLastFrame(
+    private async sanitizePrompt(originalPrompt: string): Promise<string> {
+        console.log("   ⚠️ Safety filter triggered. Sanitizing prompt...");
+        try {
+            const systemPrompt = `Rewrite the following video generation prompt to remove any references to real people, celebrities, or public figures. 
+            Describe characters using only generic physical attributes (e.g. "a tall man with short hair" instead of "looks like Tom Cruise"). 
+            Ensure the prompt is safe and will not trigger celebrity recognition filters. 
+            Keep the visual style, action, and lighting instructions intact.
+            Output ONLY the sanitized prompt text.`;
+
+            const response = await this.llm.models.generateContent(buildllmParams({
+                model: 'gemini-2.5-flash',
+                contents: [
+                    { role: 'user', parts: [{ text: systemPrompt + "\n\n" + originalPrompt }] }
+                ],
+            }));
+            
+            const sanitized = response.text;
+            console.log("   ✓ Prompt sanitized.");
+            return sanitized || originalPrompt;
+        } catch (e) {
+            console.warn("   ⚠️ Failed to sanitize prompt, using original:", e);
+            return originalPrompt;
+        }
+    }
+
+    private async generateVideo(
+        prompt: string,
+        duration: number,
+        sceneId: number,
+        startFrame?: string
+    ): Promise<string> {
+        let currentPrompt = prompt;
+        let attempt = 0;
+        const maxAttempts = 2;
+
+        while (attempt < maxAttempts) {
+            try {
+                return await this.executeVideoGeneration(currentPrompt, duration, sceneId, startFrame);
+            } catch (error: any) {
+                attempt++;
+                const errorMessage = JSON.stringify(error);
+
+                // Check for safety filter / celebrity error (29310472) or general 400 errors that might be prompt related
+                // The error message usually contains the support code or "violate"
+                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
+                    console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error.`);
+                    if (attempt < maxAttempts) {
+                        currentPrompt = await this.sanitizePrompt(currentPrompt);
+                        continue; // Retry with new prompt
+                    }
+                }
+
+                // If it's not a safety error or we ran out of attempts, throw
+                console.error(`   ✗ Failed to generate video for scene ${sceneId}:`, error);
+                throw error;
+            }
+        }
+        throw new Error("Video generation failed after max attempts.");
+    }
+
+    private async executeVideoGeneration(
+        prompt: string,
+        duration: number,
+        sceneId: number,
+        startFrame?: string
+    ): Promise<string> {
+        console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
+
+        const outputMimeType = "video/mp4";
+        const objectPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: sceneId });
+
+        let durationSeconds = 6;
+        if (typeof duration === 'number' && [ 4, 6, 8 ].includes(duration)) {
+            durationSeconds = duration;
+        }
+
+        // Get start frame info if present
+        let imageParam = undefined;
+        if (startFrame) {
+            const mimeType = await this.storageManager.getObjectMimeType(startFrame);
+            imageParam = { gcsUri: startFrame, mimeType: mimeType || "image/jpeg" };
+        }
+
+        const videoGenParams = buildVideoGenerationParams({
+            prompt,
+            image: imageParam,
+            config: {
+                durationSeconds,
+                numberOfVideos: 1,
+                personGeneration: PersonGeneration.ALLOW_ALL,
+                generateAudio: false,
+                negativePrompt: "celebrity, famous person, photorealistic representation of real person, distorted face, watermark, text, bad quality",
+            }
+        });
+
+        let operation = await this.videoModel.models.generateVideos(videoGenParams);
+
+        const startTime = Date.now();
+        const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+        console.log(`   ... Operation started: ${operation.name}`);
+
+        while (!operation.done) {
+            if (Date.now() - startTime > TIMEOUT_MS) {
+                throw new Error(`Video generation timed out after ${TIMEOUT_MS / 1000 / 60} minutes`);
+            }
+
+            console.log("   ... waiting for video generation to complete");
+            await new Promise(resolve => setTimeout(resolve, 10000));
+
+            operation = await this.videoModel.operations.getVideosOperation({ operation });
+        }
+
+        if (operation.error) {
+            throw operation.error; // Throw raw error object to be caught by retry logic
+        }
+
+        const generatedVideos = operation.response?.generatedVideos;
+        if (!generatedVideos || generatedVideos.length === 0 || !generatedVideos[ 0 ].video?.videoBytes) {
+            throw new Error("Operation completed but no video data returned.");
+        }
+
+        const videoBytesBase64 = generatedVideos[ 0 ].video.videoBytes;
+        const videoBuffer = Buffer.from(videoBytesBase64, "base64");
+
+        console.log(`   ... Uploading generated video to ${objectPath}`);
+        const gcsUri = await this.storageManager.uploadBuffer(videoBuffer, objectPath, outputMimeType);
+
+        console.log(`   ✓ Video generated and uploaded: ${gcsUri}`);
+        return gcsUri;
+    }
+
+    async extractLastFrame(
         videoUrl: string,
-        projectId: string,
         sceneId: number
     ): Promise<string> {
-        const tempVideoPath = path.join("/tmp", `scene_${sceneId}_${Date.now()}.mp4`);
-        const tempFramePath = path.join("/tmp", `scene_${sceneId}_${Date.now()}_lastframe.jpg`);
+        const fs = require('fs');
+        const tempVideoPath = `/tmp/scene_${sceneId}.mp4`;
+        const tempFramePath = `/tmp/scene_${sceneId}_lastframe.jpg`;
 
         try {
-            const videoBuffer = await this.storageManager.downloadBuffer(videoUrl);
-            await fs.writeFile(tempVideoPath, videoBuffer);
-            console.log(`   ✓ Video downloaded to temporary path: ${tempVideoPath}`);
+            await this.storageManager.downloadFile(videoUrl, tempVideoPath);
 
-            const ffmpegBin = (await import('@ffmpeg-installer/ffmpeg'));
-            const args = [`-sseof -1`, `-i "${tempVideoPath}"`, `-update 1`, `-q:v 1`, `"${tempFramePath}"`];
+            return new Promise((resolve, reject) => {
+                const framePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: sceneId });
 
-            (await import('child_process')).spawn(ffmpegBin.path, args)
+                ffmpeg(tempVideoPath)
+                    .screenshots({
+                        timestamps: [ '99%' ],
+                        filename: `scene_${sceneId}_lastframe.jpg`,
+                        folder: '/tmp',
+                    })
+                    .on('end', async () => {
+                        try {
+                            const fileBuffer = fs.readFileSync(tempFramePath);
+                            const gcsUrl = await this.storageManager.uploadBuffer(fileBuffer, framePath, "image/jpeg");
+                            console.log(`   ✓ Last frame extracted: ${gcsUrl}`);
 
-            console.log(`   ✓ Last frame extracted using ffmpeg to: ${tempFramePath}`);
+                            if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
+                            if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
 
-            const frameBuffer = await fs.readFile(tempFramePath);
-            const framePath = `video/${projectId}/frames/scene_${sceneId.toString().padStart(3, "0")}_lastframe.jpg`;
-            const mimeType = "image/jpeg";
-            
-            const frameUrl = await this.storageManager.uploadBuffer(
-                frameBuffer,
-                framePath,
-                mimeType
-            );
-            console.log(`   ✓ Last frame uploaded to GCS: ${frameUrl}`);
-            
-            return frameUrl;
+                            resolve(gcsUrl);
+                        } catch (err) {
+                            if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
+                            if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
+                            reject(err);
+                        }
+                    })
+                    .on('error', (err: Error) => {
+                        console.error(`   ✗ Failed to extract last frame for scene ${sceneId}:`, err);
+                        if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
+                        reject(err);
+                    });
+            });
         } catch (error) {
-            console.error("Error extracting last frame:", error);
-            throw new Error(`Failed to extract last frame for scene ${sceneId}.`);
+            if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
+            throw error;
+        }
+    }
+
+    async stitchScenes(videoPaths: string[]): Promise<string> {
+        console.log(`\n🎬 Stitching ${videoPaths.length} scenes...`);
+        
+        const fs = require('fs');
+        const path = require('path');
+        const tmpDir = '/tmp';
+        const fileListPath = path.join(tmpDir, 'concat_list.txt');
+        const outputFilePath = path.join(tmpDir, 'final_movie.mp4');
+        const downloadedFiles: string[] = [];
+
+        try {
+            console.log("   ... Downloading clips...");
+            await Promise.all(videoPaths.map(async (pathUrl, i) => {
+                const localPath = path.join(tmpDir, `clip_${i}.mp4`);
+                await this.storageManager.downloadFile(pathUrl, localPath);
+                downloadedFiles[i] = localPath; // Ensure order is preserved
+            }));
+
+            const fileListContent = downloadedFiles.map(f => `file '${f}'`).join('\n');
+            fs.writeFileSync(fileListPath, fileListContent);
+
+            console.log("   ... Stitching videos with ffmpeg");
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(fileListPath)
+                    .inputOptions(['-f', 'concat', '-safe', '0'])
+                    .outputOptions('-c copy')
+                    .save(outputFilePath)
+                    .on('end', () => resolve())
+                    .on('error', (err: Error) => reject(err));
+            });
+
+            const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
+            console.log(`   ... Uploading stitched video to ${objectPath}`);
+            const gcsUri = await this.storageManager.uploadFile(outputFilePath, objectPath);
+            
+            console.log(`   ✓ Stitched video uploaded: ${gcsUri}`);
+            return gcsUri;
+
+        } catch (error) {
+            console.error("   ✗ Failed to stitch scenes:", error);
+            throw error;
         } finally {
-            try {
-                await fs.unlink(tempVideoPath);
-                await fs.unlink(tempFramePath);
-            } catch (cleanupError) {
-                console.error("Error cleaning up temporary files:", cleanupError);
-            }
+            if (fs.existsSync(fileListPath)) fs.unlinkSync(fileListPath);
+            if (fs.existsSync(outputFilePath)) fs.unlinkSync(outputFilePath);
+            downloadedFiles.forEach(f => {
+                if (fs.existsSync(f)) fs.unlinkSync(f);
+            });
         }
     }
 }
