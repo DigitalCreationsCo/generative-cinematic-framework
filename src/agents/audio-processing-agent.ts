@@ -60,10 +60,8 @@ export class AudioProcessingAgent {
             mimeType: "audio/mp3", // Assuming mp3 for now
         };
 
-        // Note: This is a simplified call. We will need to process the result
-        // to extract the timestamps and text.
         const result = await this.genAI.models.generateContent({
-            model: "gemini-2.5-pro",
+            model: "gemini-3-pro-preview",
             contents: [
                 {
                     role: "user",

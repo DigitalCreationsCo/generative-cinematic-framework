@@ -39,7 +39,7 @@ export class FrameCompositionAgent {
 
         const outputMimeType = "image/png";
         const result = await this.imageModel.models.generateContent({
-            model: "gemini-2.5-flash-image",
+            model: "gemini-3-pro-image-preview",
             contents: [ textPrompt, ...lastFrameInput, ...characterReferenceInputs ],
             config: {
                 candidateCount: 1,
