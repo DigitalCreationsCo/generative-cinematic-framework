@@ -88,6 +88,14 @@ export class GCPStorageManager {
     await file.download({ destination: localDestination });
   }
 
+  async downloadToBuffer(gcsPath: string): Promise<Buffer> {
+    const path = this.parsePathFromUri(gcsPath);
+    const bucket = this.storage.bucket(this.bucketName);
+    const file = bucket.file(path);
+    const [contents] = await file.download();
+    return contents;
+  }
+
 
 
   /**

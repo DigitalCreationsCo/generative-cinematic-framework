@@ -1,4 +1,4 @@
-import { GoogleGenAI, Part } from "@google/genai";
+import { GoogleGenAI, Modality, Part } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { buildImageGenerationParams } from "../llm-params";
 
@@ -18,7 +18,7 @@ export class FrameCompositionAgent {
                 if (!mimeType) {
                     throw new Error(`Could not determine mime type for ${url}`);
                 }
-                return { inlineData: { mimeType, gcsUri: url } };
+                return { fileData: { mimeType, fileUri: url } };
             })
         );
     }
@@ -37,29 +37,33 @@ export class FrameCompositionAgent {
 
         const textPrompt: Part = { text: `Compose a new cinematic frame. Use the main image (input 0) for background, mood, and context. Introduce the character(s) from the reference images (inputs 1+) into this scene, ensuring their appearance is consistent. The new frame should be a natural continuation of the main image's action and composition.` };
 
-        const imageGenParams = buildImageGenerationParams({
-            prompt: [textPrompt, ...lastFrameInput, ...characterReferenceInputs] as any,
+        const outputMimeType = "image/png";
+        const result = await this.imageModel.models.generateContent({
+            model: "gemini-2.5-flash-image",
+            contents: [ textPrompt, ...lastFrameInput, ...characterReferenceInputs ],
             config: {
-                numberOfImages: 1,
-            },
+                candidateCount: 1,
+                responseModalities: [ Modality.IMAGE ],
+                imageConfig: {
+                    outputMimeType: outputMimeType
+                }
+            }
         });
-        
-        const result = await this.imageModel.models.generateImages(imageGenParams);
 
-        if (!result.generatedImages || result.generatedImages.length === 0) {
+        if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
             throw new Error("Image generation failed to return any images.");
         }
 
-        const generatedImage = result.generatedImages[0];
-        if (!generatedImage.image?.imageBytes) {
-            throw new Error("Generated image data is missing.");
+        const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+        if (!generatedImageData) {
+            throw new Error("Generated image is missing inline data.");
         }
 
-        const imageBuffer = Buffer.from(generatedImage.image.imageBytes, "base64");
+        const imageBuffer = Buffer.from(generatedImageData, "base64");
         const outputPath = this.storageManager.getGcsObjectPath("composite_frame", { sceneId });
 
         console.log(`   ... Uploading composite frame to ${outputPath}`);
-        const gcsUri = await this.storageManager.uploadBuffer(imageBuffer, outputPath, "image/jpeg");
+        const gcsUri = await this.storageManager.uploadBuffer(imageBuffer, outputPath, outputMimeType);
 
         console.log(`   ✓ Composite frame generated and uploaded: ${gcsUri}`);
         return gcsUri;
