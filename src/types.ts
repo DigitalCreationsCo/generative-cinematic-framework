@@ -25,6 +25,8 @@ export const SceneSchema = z.object({
   duration: z.union([z.literal(4), z.literal(6), z.literal(8)]).describe("duration in seconds (4, 6, or 8)"),
   shotType: z.string().describe("camera shot type (e.g., wide, medium, close-up)"),
   description: z.string().describe("detailed scene description"),
+  musicDescription: z.string().optional().describe("description of the musical soundscape"),
+  musicalChange: z.string().optional().describe("description of any musical changes"),
   cameraMovement: z.string().describe("camera movement description (e.g., static, pan, dolly)"),
   lighting: z.string().describe("lighting description"),
   mood: z.string().describe("emotional tone of the scene"),
@@ -105,6 +107,8 @@ export type ContinuityContext = z.infer<typeof ContinuityContextSchema>;
 
 export const GraphStateSchema = z.object({
   initialPrompt: z.string(),
+  creativePrompt: z.string().optional(),
+  audioGcsUri: z.string().optional(),
   storyboard: StoryboardSchema.optional(),
   currentSceneIndex: z.number(),
   generatedScenes: z.array(SceneSchema),

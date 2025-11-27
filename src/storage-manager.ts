@@ -96,6 +96,14 @@ export class GCPStorageManager {
     return contents;
   }
 
+  async fileExists(gcsPath: string): Promise<boolean> {
+    const path = this.parsePathFromUri(gcsPath);
+    const bucket = this.storage.bucket(this.bucketName);
+    const file = bucket.file(path);
+    const [exists] = await file.exists();
+    return exists;
+  }
+
 
 
   /**

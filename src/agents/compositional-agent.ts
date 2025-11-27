@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import {
+  Scene,
   Storyboard,
   StoryboardSchema,
   zodToJSONSchema,
@@ -19,6 +20,50 @@ export class CompositionalAgent {
   constructor(llm: GoogleGenAI, storageManager: GCPStorageManager) {
     this.llm = llm;
     this.storageManager = storageManager;
+  }
+
+  async enhanceStoryboard(scenes: Scene[], prompt: string): Promise<Storyboard> {
+    const jsonSchema = zodToJSONSchema(StoryboardSchema);
+    const systemPrompt = `You are an expert cinematic director. 
+Your task is to take a list of timed scenes (from an audio analysis) and a high-level creative prompt, then flesh out the cinematic details for each scene.
+
+You will be given a JSON object with scenes that already have 'id', 'timeStart', 'timeEnd', 'duration', 'musicDescription', and 'musicalChange'.
+Your job is to fill in the remaining fields for each scene: 'shotType', 'description', 'cameraMovement', 'lighting', 'mood', 'audioSync', 'continuityNotes', 'charactersPresent', and 'locationId'.
+
+Use the high-level prompt to create a cohesive narrative across all the scenes.
+
+Output a JSON object following this EXACT SCHEMA: ${jsonSchema}`;
+
+    const llmParams = buildllmParams({
+      contents: [
+        { role: 'user', parts: [{ text: systemPrompt }] },
+        { role: 'user', parts: [{ text: `High-level prompt: ${prompt}\n\nTimed scenes: ${JSON.stringify(scenes, null, 2)}` }] }
+      ],
+      config: {
+        responseJsonSchema: jsonSchema,
+        responseMimeType: "application/json"
+      }
+    });
+
+    const response = await this.llm.models.generateContent(llmParams);
+    const content = response.text;
+
+    if (!content) {
+      throw new Error("No content generated from LLM");
+    }
+
+    const cleanedContent = cleanJsonOutput(content);
+    const storyboard = JSON.parse(cleanedContent) as Storyboard;
+
+    // Save storyboard to GCP
+    const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+    await this.storageManager.uploadJSON(storyboard, storyboardPath);
+
+    console.log(`✓ Storyboard enhanced:`);
+    console.log(`  - Title: ${storyboard.metadata.title}`);
+    console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
+
+    return storyboard;
   }
 
   async generateStoryboard(initialPrompt: string): Promise<Storyboard> {

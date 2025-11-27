@@ -61,7 +61,7 @@ export class SceneGeneratorAgent {
             Output ONLY the sanitized prompt text.`;
 
             const response = await this.llm.models.generateContent(buildllmParams({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-2.5-pro',
                 contents: [
                     { role: 'user', parts: [{ text: systemPrompt + "\n\n" + originalPrompt }] }
                 ],
@@ -263,18 +263,21 @@ export class SceneGeneratorAgent {
         }
     }
 
-    async stitchScenes(videoPaths: string[]): Promise<string> {
+    async stitchScenes(videoPaths: string[], audioPath: string): Promise<string> {
         console.log(`\n🎬 Stitching ${videoPaths.length} scenes...`);
         
         const fs = require('fs');
         const path = require('path');
         const tmpDir = '/tmp';
         const fileListPath = path.join(tmpDir, 'concat_list.txt');
-        const outputFilePath = path.join(tmpDir, 'final_movie.mp4');
+        const intermediateVideoPath = path.join(tmpDir, 'intermediate_movie.mp4');
+        const finalVideoPath = path.join(tmpDir, 'final_movie.mp4');
         const downloadedFiles: string[] = [];
+        const localAudioPath = path.join(tmpDir, 'audio.mp3');
 
         try {
-            console.log("   ... Downloading clips...");
+            console.log("   ... Downloading clips and audio...");
+            await this.storageManager.downloadFile(audioPath, localAudioPath);
             await Promise.all(videoPaths.map(async (pathUrl, i) => {
                 const localPath = path.join(tmpDir, `clip_${i}.mp4`);
                 await this.storageManager.downloadFile(pathUrl, localPath);
@@ -290,14 +293,25 @@ export class SceneGeneratorAgent {
                     .input(fileListPath)
                     .inputOptions(['-f', 'concat', '-safe', '0'])
                     .outputOptions('-c copy')
-                    .save(outputFilePath)
+                    .save(intermediateVideoPath)
+                    .on('end', () => resolve())
+                    .on('error', (err: Error) => reject(err));
+            });
+
+            console.log("   ... Adding audio track to the final video");
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(intermediateVideoPath)
+                    .input(localAudioPath)
+                    .outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental'])
+                    .save(finalVideoPath)
                     .on('end', () => resolve())
                     .on('error', (err: Error) => reject(err));
             });
 
             const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
             console.log(`   ... Uploading stitched video to ${objectPath}`);
-            const gcsUri = await this.storageManager.uploadFile(outputFilePath, objectPath);
+            const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
             
             console.log(`   ✓ Stitched video uploaded: ${gcsUri}`);
             return gcsUri;
@@ -307,7 +321,9 @@ export class SceneGeneratorAgent {
             throw error;
         } finally {
             if (fs.existsSync(fileListPath)) fs.unlinkSync(fileListPath);
-            if (fs.existsSync(outputFilePath)) fs.unlinkSync(outputFilePath);
+            if (fs.existsSync(intermediateVideoPath)) fs.unlinkSync(intermediateVideoPath);
+            if (fs.existsSync(finalVideoPath)) fs.unlinkSync(finalVideoPath);
+            if (fs.existsSync(localAudioPath)) fs.unlinkSync(localAudioPath);
             downloadedFiles.forEach(f => {
                 if (fs.existsSync(f)) fs.unlinkSync(f);
             });
