@@ -1,7 +1,7 @@
 import { GenerateContentParameters, GenerateImagesParameters, GenerateVideosParameters, HarmBlockMethod, HarmBlockThreshold, HarmCategory, Modality, Part } from "@google/genai";
 
 export const buildllmParams = (params: { contents: GenerateContentParameters[ 'contents' ]; } & Partial<GenerateContentParameters>): GenerateContentParameters => ({
-    model: "gemini-2.5-pro",
+    model: "gemini-3-pro-preview",
     ...params,
     config: {
         responseModalities: [ Modality.TEXT ],

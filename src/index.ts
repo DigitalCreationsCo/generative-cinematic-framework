@@ -29,7 +29,7 @@ import { AudioProcessingAgent } from "./agents/audio-processing-agent";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-const LOCAL_AUDIO_PATH = "Blind_Melon_-_Make_a_Difference.mp3";
+const LOCAL_AUDIO_PATH = "audio/Between_the_Buried_and_Me_-_Obfuscation.mp3";
 
 class CinematicVideoWorkflow {
   private graph: StateGraph<GraphState>;

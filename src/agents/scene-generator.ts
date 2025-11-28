@@ -61,7 +61,7 @@ export class SceneGeneratorAgent {
             Output ONLY the sanitized prompt text.`;
 
             const response = await this.llm.models.generateContent(buildllmParams({
-                model: 'gemini-2.5-pro',
+                model: 'gemini-3-pro-preview',
                 contents: [
                     { role: 'user', parts: [{ text: systemPrompt + "\n\n" + originalPrompt }] }
                 ],

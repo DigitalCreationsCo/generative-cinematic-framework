@@ -1,17 +1,20 @@
+// ============================================================================
+// OPTIMIZED COMPOSITIONAL AGENT
+// ============================================================================
+
 import { GoogleGenAI } from "@google/genai";
+import { z } from "zod";
 import {
   Scene,
   Storyboard,
   StoryboardSchema,
+  SceneSchema,
   zodToJSONSchema,
+  Character,
+  Location,
 } from "../types";
-import { GCPStorageManager } from "../storage-manager";
-import { buildllmParams } from "../llm-params";
 import { cleanJsonOutput } from "../utils";
-
-// ============================================================================
-// COMPOSITIONAL AGENT
-// ============================================================================
+import { GCPStorageManager } from "../storage-manager";
 
 export class CompositionalAgent {
   private llm: GoogleGenAI;
@@ -22,127 +25,178 @@ export class CompositionalAgent {
     this.storageManager = storageManager;
   }
 
-  async enhanceStoryboard(scenes: Scene[], prompt: string): Promise<Storyboard> {
-    const jsonSchema = zodToJSONSchema(StoryboardSchema);
-    const systemPrompt = `You are an expert cinematic director. 
-Your task is to take a list of timed scenes (from an audio analysis) and a high-level creative prompt, then flesh out the cinematic details for each scene.
+  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string): Promise<Storyboard> {
+    console.log("   ... Enriching scene template with narrative from creative prompt...");
+    
+    const BATCH_SIZE = 10;
+    let enrichedScenes: Scene[] = [];
 
-You will be given a JSON object with scenes that already have 'id', 'timeStart', 'timeEnd', 'duration', 'musicDescription', and 'musicalChange'.
-Your job is to fill in the remaining fields for each scene: 'shotType', 'description', 'cameraMovement', 'lighting', 'mood', 'audioSync', 'continuityNotes', 'charactersPresent', and 'locationId'.
+    let storyboardMetadata = {} as Storyboard['metadata'];
+    let characters: Character[] = [];
+    let locations: Location[] = [];
 
-Use the high-level prompt to create a cohesive narrative across all the scenes.
-
-Output a JSON object following this EXACT SCHEMA: ${jsonSchema}`;
-
-    const llmParams = buildllmParams({
-      contents: [
-        { role: 'user', parts: [{ text: systemPrompt }] },
-        { role: 'user', parts: [{ text: `High-level prompt: ${prompt}\n\nTimed scenes: ${JSON.stringify(scenes, null, 2)}` }] }
-      ],
-      config: {
-        responseJsonSchema: jsonSchema,
-        responseMimeType: "application/json"
-      }
+    const ScenesOnlySchema = z.object({
+        scenes: z.array(SceneSchema)
     });
 
-    const response = await this.llm.models.generateContent(llmParams);
-    const content = response.text;
+    for (let i = 0; i < storyboard.scenes.length; i += BATCH_SIZE) {
+      const chunk = storyboard.scenes.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(storyboard.scenes.length / BATCH_SIZE);
+      console.log(`   ... Processing batch ${batchNum}/${totalBatches} (${chunk.length} scenes)...`);
+        
+      const isFirstBatch = i === 0;
 
-    if (!content) {
-      throw new Error("No content generated from LLM");
+      const systemPrompt = `You are an expert cinematic director and storyboard artist.
+      Your task is to analyze a creative prompt and generate a complete, professional storyboard that synchronizes visual storytelling with musical structure.
+        
+        You are processing BATCH ${batchNum} of ${totalBatches}.
+        
+        ${isFirstBatch ? 
+        `Your task is to:
+        1. Define the global metadata, characters, and locations based on the creative prompt.
+        2. Enrich the provided scenes with visual details.` : 
+        `Your task is to enrich the provided scenes, maintaining consistency with the established characters, locations, and narrative flow.`}
+
+        **PRESERVING MUSICAL STRUCTURE:**
+        - Keep ALL scene timings EXACTLY as provided (timeStart, timeEnd, duration)
+        - Keep musicDescription, musicalChange, musicalIntensity, musicalMood, musicalTempo
+        - Keep transitionType
+        - Keep audioSync
+
+        **ENRICHING WITH NARRATIVE:**
+        - Replace placeholder descriptions with vivid visual storytelling from the creative prompt
+        - Assign appropriate shotType, cameraMovement, lighting, mood
+        - Add continuityNotes
+        - Assign charactersPresent (from established list)
+        - Assign locationId (from established list)
+
+        **NARRATIVE FLOW:**
+        - Ensure smooth transition from previous scenes.
+        - Match visual intensity to musical intensity.
+
+        ${!isFirstBatch ? `**ESTABLISHED CONTEXT:**
+        - Title: ${storyboardMetadata?.title || "Untitled"}
+        - Characters: ${(characters || []).map(c => c.name).join(", ")}
+        - Locations: ${(locations || []).map(l => l.name).join(", ")}` : ''}
+
+        Return a JSON object matching the schema.`;
+
+        let context = `CREATIVE PROMPT:\n${creativePrompt}\n\n`;
+        if (i > 0 && enrichedScenes.length > 0) {
+            const lastScene = enrichedScenes[enrichedScenes.length - 1];
+            context += `PREVIOUS SCENE CONTEXT:\n`;
+            context += `Last Scene ID: ${lastScene.id}\n`;
+            context += `Last Scene Time: ${lastScene.timeEnd}\n`;
+            context += `Last Scene Description: ${lastScene.description}\n\n`;
+        }
+        context += `SCENES TO ENRICH (Batch ${batchNum}):\n${JSON.stringify(chunk, null, 2)}`;
+
+        const schema = isFirstBatch ? StoryboardSchema : ScenesOnlySchema;
+        const jsonSchema = zodToJSONSchema(schema);
+
+        const llmParams = {
+            model: "gemini-2.5-pro",
+            contents: [
+                { role: 'user', parts: [ { text: systemPrompt } ] },
+                { role: 'user', parts: [ { text: context } ] }
+            ],
+            config: {
+                responseJsonSchema: jsonSchema,
+                responseMimeType: "application/json",
+                temperature: 0.8, 
+            }
+        };
+
+        let retries = 0;
+        const MAX_RETRIES = 3;
+        let success = false;
+
+        while (!success && retries < MAX_RETRIES) {
+            try {
+                const response = await this.llm.models.generateContent(llmParams);
+                const content = response.text;
+
+                if (!content) {
+                    throw new Error("No content generated from LLM");
+                }
+
+                const cleanedContent = cleanJsonOutput(content);
+                const result:Storyboard = JSON.parse(cleanedContent);
+
+            if (isFirstBatch) {
+                storyboardMetadata = result.metadata || {};
+                characters = result.characters || [];
+                locations = result.locations || [];
+                enrichedScenes.push(...(result.scenes || []));
+            } else {
+                enrichedScenes.push(...(result.scenes || []));
+            }
+                
+                success = true;
+                await new Promise(resolve => setTimeout(resolve, 5000));
+
+            } catch (error: any) {
+                if (error.status === 429 || (error.message && error.message.includes("429"))) {
+                    retries++;
+                    const waitTime = Math.pow(2, retries) * 10000; // 20s, 40s, 80s
+                    console.warn(`   ⚠️ Rate limit hit (429) on batch ${batchNum}. Retrying in ${waitTime/1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                } else {
+                    console.error(`   ❌ Error processing batch ${batchNum}:`, error);
+                    throw error;
+                }
+            }
+        }
+        
+        if (!success) {
+            throw new Error(`Failed to process batch ${batchNum} after ${MAX_RETRIES} retries.`);
+        }
     }
 
-    const cleanedContent = cleanJsonOutput(content);
-    const storyboard = JSON.parse(cleanedContent) as Storyboard;
+    storyboard = {
+      metadata: {
+        ...storyboardMetadata,
+        totalScenes: storyboard.scenes.length,
+        duration: storyboard.scenes[ storyboard.scenes.length - 1].timeEnd 
+      },
+      characters,
+      locations,
+      scenes: enrichedScenes
+    };
 
-    // Save storyboard to GCP
+    this.validateTimingPreservation(storyboard.scenes, storyboard.scenes);
+
     const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
     await this.storageManager.uploadJSON(storyboard, storyboardPath);
 
-    console.log(`✓ Storyboard enhanced:`);
-    console.log(`  - Title: ${storyboard.metadata.title}`);
+    console.log(`✓ Storyboard enriched successfully:`);
+    console.log(`  - Title: ${storyboard.metadata.title || "Untitled"}`);
+    console.log(`  - Duration: ${storyboard.metadata.duration}`);
     console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
+    console.log(`  - Characters: ${storyboard.characters.length}`);
+    console.log(`  - Locations: ${storyboard.locations.length}`);
+    console.log(`  - Key Moments: ${storyboard.metadata.keyMoments?.length || 0}`);
 
     return storyboard;
   }
 
-  async generateStoryboard(initialPrompt: string): Promise<Storyboard> {
-    const jsonSchema = zodToJSONSchema(StoryboardSchema);
-    const systemPrompt = `You are an expert cinematic director and storyboard artist. 
-Your task is to analyze a creative prompt and generate a complete, professional storyboard.
+  private validateTimingPreservation(originalScenes: Scene[], enrichedScenes: Scene[]): void {
+    if (originalScenes.length !== enrichedScenes.length) {
+      console.warn(`⚠️ Scene count mismatch: original=${originalScenes.length}, enriched=${enrichedScenes.length}`);
+    }
 
-CRITICAL: You must INFER missing information from the prompt context:
-- If no duration is specified, analyze the content type and estimate appropriate length
-- For music videos with song transcriptions: extract exact duration from timestamps
-- For narrative content: estimate based on story complexity (short film: 3-10min, feature: 90-120min)
-- Extract style, mood, and key moments from any audio descriptions, lyrics, or narrative beats provided
+    for (let i = 0; i < Math.min(originalScenes.length, enrichedScenes.length); i++) {
+      const orig = originalScenes[ i ];
+      const enrich = enrichedScenes[ i ];
 
-Output a JSON object following this EXACT SCHEMA: ${jsonSchema}
-
-Critical guidelines:
-1. ANALYZE the prompt for timing clues:
-   - Song transcriptions with timestamps → extract exact duration
-   - Audio descriptions with time markers → identify key moments
-   - Narrative beats → estimate appropriate pacing
-2. INFER style and mood from descriptive language in the prompt
-3. EXTRACT key moments from any provided audio/narrative structure
-4. Break video into logical scenes (typically 5-30 seconds each)
-5. Describe characters with EXTREME detail for visual consistency
-6. Track which characters appear in which scenes
-7. Maintain continuity notes for costume, props, lighting
-8. Specify exact timing for each scene
-9. Consider cinematic techniques: shot composition, camera angles, lighting
-10. Match scene pacing to audio/mood requirements
-11. You are aware of the length limitations of video generation and are adept at creating continuous from multiple generated videos.
-12. MASTER CINEMATIC TRANSITIONS: Select transitions that enhance the narrative and emotional impact.
-    - USE SMOOTH/EASING TRANSITIONS (e.g., Dissolve, Fade, Wipe) for gradual shifts in time, location, or mood. Ideal for contemplative moments or connecting related scenes.
-    - USE SUDDEN/HARD TRANSITIONS (e.g., Hard Cut, Jump Cut, Smash Cut) for dramatic effect, high-energy sequences, or abrupt changes in perspective. Match these to sudden shifts in music or action to maximize impact.
-
-Examples of inference:
-- "Progressive metal band" → Style: "High-energy progressive metal with technical instrumentation"
-- "lighting changes from white to violet to red" → ColorPalette: ["White", "Violet", "Red"]
-- "00:00 - 00:18 explosive opening" → KeyMoment: {timeStart: "00:00", timeEnd: "00:18", description: "Explosive opening with driving guitar riffs"}`;
-
-    const llmParams = buildllmParams({
-      contents: [
-        { role: 'user', parts: [{ text: systemPrompt }] },
-        { role: 'user', parts: [{ text: initialPrompt }] }
-      ],
-      config: {
-        responseJsonSchema: jsonSchema,
-        responseMimeType: "application/json"
+      if (orig.timeStart !== enrich.timeStart || orig.timeEnd !== enrich.timeEnd) {
+        console.warn(`⚠️ Timing mismatch in scene ${i + 1}: original=[${orig.timeStart}-${orig.timeEnd}], enriched=[${enrich.timeStart}-${enrich.timeEnd}]`);
       }
-    });
 
-    const response = await this.llm.models.generateContent(llmParams);
-    const content = response.text;
-
-    if (!content) {
-      throw new Error("No content generated from LLM");
+      if (orig.duration !== enrich.duration) {
+        console.warn(`⚠️ Duration mismatch in scene ${i + 1}: original=${orig.duration}s, enriched=${enrich.duration}s`);
+      }
     }
-
-    const cleanedContent = cleanJsonOutput(content);
-    const storyboard = JSON.parse(cleanedContent) as Storyboard;
-
-    // Save storyboard to GCP
-    const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
-    await this.storageManager.uploadJSON(storyboard, storyboardPath);
-
-    console.log(`✓ Storyboard generated:`);
-    console.log(`  - Title: ${storyboard.metadata.title}`);
-    console.log(`  - Duration: ${storyboard.metadata.duration}`);
-    console.log(`  - Style: ${storyboard.metadata.style}`);
-    console.log(`  - Mood: ${storyboard.metadata.mood}`);
-    console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
-    console.log(`  - Key Moments: ${storyboard.metadata.keyMoments.length}`);
-
-    if (storyboard.metadata.keyMoments.length > 0) {
-      console.log(`\n  📍 Key Moments to Capture:`);
-      storyboard.metadata.keyMoments.forEach((moment) => {
-        console.log(`     ${moment.timeStart}-${moment.timeEnd}: ${moment.description}`);
-      });
-    }
-
-    return storyboard;
   }
 }
