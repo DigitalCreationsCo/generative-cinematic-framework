@@ -1,11 +1,13 @@
 import {
+    GenerateContentParameters,
     GenerateContentResponse,
+    GenerateVideosParameters,
     GenerateVideosResponse,
     Operation,
 } from '@google/genai';
 
 export interface LlmProvider {
-    generateContent(params: any): Promise<GenerateContentResponse>;
-    generateVideos(params: any): Promise<Operation<GenerateVideosResponse>>;
+    generateContent(params: GenerateContentParameters): Promise<GenerateContentResponse>;
+    generateVideos(params: GenerateVideosParameters): Promise<Operation<GenerateVideosResponse>>;
     getVideosOperation(params: { operation: Operation<GenerateVideosResponse>; }): Promise<Operation<GenerateVideosResponse>>;
 }

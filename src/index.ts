@@ -3,7 +3,7 @@
 // Google Vertex AI + LangGraph + GCP Storage
 // ============================================================================
 
-const LOCAL_AUDIO_PATH = "audio/Between_the_Buried_and_Me_-_Obfuscation.mp3";
+const LOCAL_AUDIO_PATH = "audio/talk.mp3";
 
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegBin from "@ffmpeg-installer/ffmpeg";
@@ -42,7 +42,7 @@ class CinematicVideoWorkflow {
   private audioProcessingAgent: AudioProcessingAgent;
   private projectId: string;
   private videoId: string;
-  private SCENE_GEN_TIMEOUT_MS = 30000;
+  private SCENE_GEN_COOLDOWN_MS = 30000;
 
   constructor(
     projectId: string,
@@ -101,7 +101,7 @@ class CinematicVideoWorkflow {
 
     workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
       console.log("\n📋 PHASE 1a: Creating Timed Scenes from Audio...");
-      const { segments, audioGcsUri, totalDuration } = await this.audioProcessingAgent.processAudioToStoryboard(
+      const { segments, totalDuration } = await this.audioProcessingAgent.processAudioToScenes(
         state.initialPrompt,
       );
 
@@ -111,7 +111,6 @@ class CinematicVideoWorkflow {
           metadata: { duration: totalDuration },
           scenes: segments,
         },
-        audioGcsUri,
       };
     });
 
@@ -119,7 +118,7 @@ class CinematicVideoWorkflow {
       if (!state.storyboard || !state.storyboard.scenes) throw new Error("No timed scenes available");
       if (!state.creativePrompt) throw new Error("No creative prompt available");
       console.log("\n📋 PHASE 1b: Enhancing Storyboard with Prompt...");
-      const storyboard = await this.compositionalAgent.enhanceStoryboard(
+      const storyboard = await this.compositionalAgent.generateStoryboard(
         state.storyboard,
         state.creativePrompt
       );
@@ -140,7 +139,7 @@ class CinematicVideoWorkflow {
       if (!state.storyboard) throw new Error("No storyboard available");
 
       console.log("\n🎨 PHASE 2: Generating Character References...");
-      const characters = await this.continuityAgent.generateCharacterReferences(
+      const characters = await this.continuityAgent.generateCharacterAssets(
         state.storyboard.characters,
       );
 
@@ -159,10 +158,7 @@ class CinematicVideoWorkflow {
       console.log(
         `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboard.scenes.length}`
       );
-
-      const sceneVideoPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: scene.id });
       
-      // Attempt to find last frame to maintain continuity for next scene
       let lastFrameUrl: string | undefined;
       const lastFramePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: scene.id });
       if (await this.storageManager.fileExists(lastFramePath)) {
@@ -170,25 +166,23 @@ class CinematicVideoWorkflow {
         console.log(`   ... Found last frame for continuity: ${lastFrameUrl}`);
       }
 
-
-      // Check if scene video exists to resume
+      const sceneVideoPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: scene.id });
+      
       if (await this.storageManager.fileExists(sceneVideoPath)) {
         console.log(`   ... Scene video already exists at ${sceneVideoPath}, skipping.`);
         
         const videoGcsUrl = this.storageManager.getGcsUrl(sceneVideoPath);
         
-        // Reconstruct generated scene object
         const generatedScene: Scene = {
-            ...scene,
-            generatedVideoUrl: videoGcsUrl,
-            lastFrameUrl
+          ...scene,
+          generatedVideoUrl: videoGcsUrl,
+          lastFrameUrl
         };
 
-        // Update continuity context so next scene has correct previous scene info
         const updatedContext = this.continuityAgent.updateContinuityContext(
-            generatedScene,
-            state.continuityContext,
-            state.characters
+          generatedScene,
+          state.continuityContext,
+          state.characters
         );
 
         return {
@@ -215,8 +209,8 @@ class CinematicVideoWorkflow {
         characterReferenceUrls
       );
 
-      console.log(`   ... waiting ${this.SCENE_GEN_TIMEOUT_MS / 1000}s for rate limit reset`);
-      await new Promise(resolve => setTimeout(resolve, this.SCENE_GEN_TIMEOUT_MS));
+      console.log(`   ... waiting ${this.SCENE_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
+      await new Promise(resolve => setTimeout(resolve, this.SCENE_GEN_COOLDOWN_MS));
 
       const updatedContext = this.continuityAgent.updateContinuityContext(
         generatedScene,
@@ -250,6 +244,7 @@ class CinematicVideoWorkflow {
 
       try {
         const renderedVideoUrl = await this.sceneAgent.stitchScenes(videoPaths, state.audioGcsUri);
+
         return {
           ...state,
           renderedVideoUrl
@@ -264,7 +259,7 @@ class CinematicVideoWorkflow {
     });
 
     workflow.addNode("finalize", async (state: GraphState) => {
-      console.log("\n✅ PHASE 4: Finalizing Video...");
+      console.log("\n✅ PHASE 4: Finalizing Workflow...");
       console.log(`   Total scenes generated: ${state.generatedScenes.length}`);
 
       const outputPath = this.storageManager.getGcsObjectPath("final_output");
@@ -301,13 +296,16 @@ class CinematicVideoWorkflow {
     return workflow;
   }
 
-  async execute(localAudioPath?: string, creativePrompt?: string): Promise<GraphState> {
+  async execute(localAudioPath: string, creativePrompt: string): Promise<GraphState> {
     console.log(`🚀 Executing Cinematic Video Generation Workflow for videoId: ${this.videoId}`);
     console.log("=".repeat(60));
 
     let initialState: GraphState;
 
     try {
+        console.log("   Checking for existing audio file...");
+        const audioGcsUri = await this.storageManager.uploadAudioFile(localAudioPath);
+        
         console.log("   Checking for existing storyboard...");
         const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
         const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
@@ -320,7 +318,7 @@ class CinematicVideoWorkflow {
                 const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
                 return { ...char, referenceImageUrls: [ fullGcsUrl ] };
             }
-            return this.continuityAgent.generateCharacterReferences([ char ]).then(chars => chars[ 0 ]);
+          return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
         });
 
         const characters = await Promise.all(characterPromises);
@@ -332,6 +330,7 @@ class CinematicVideoWorkflow {
             characters,
             currentSceneIndex: 0,
             generatedScenes: [],
+            audioGcsUri,
             continuityContext: {
                 characters: new Map(),
                 locations: new Map(),
@@ -378,79 +377,81 @@ async function main() {
   const videoId = videoIdFromArgs || `video_${Date.now()}`;
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 
-  const creativePrompt = `
-Create a full-length music video featuring cinematic shots interlaced with a live musical performance. 
-Dynamically switch between cinematic shots and band performance shots.
+  //   const creativePrompt = `
+  // Create a full-length music video featuring cinematic shots interlaced with a live musical performance.
+  // Dynamically switch between cinematic shots and band performance shots.
 
-Musical Performance:
-Progressive metal band performing in a large stone room. Cinematic studio grade lighting changes
-from white to violet to red depending on the tone of the music. Sunlight rays enter from gaps in
-the stone walls.
+  // Musical Performance:
+  // Progressive metal band performing in a large stone room. Cinematic studio grade lighting changes
+  // from white to violet to red depending on the tone of the music. Sunlight rays enter from gaps in
+  // the stone walls.
 
-List of Scenes:
-<video_scenes>
-Desert scene
-2X speed fly-over
-A group of exeditioners with a caravan of camels
-Crossing the Egyptian deserts
-To arrive at the tomb of the ancient Egyptian king
-They enter the tomb cautiously,
-A man a woman and two other men
-They quickly realize the tomb is laid with traps
-They’re forced to move deeper into the tomb,
- Becoming trapped
-They enter the hall of the king
-This is what they have been looking for
-The man and the woman approach the sarcophagus
-They expect to find treasure here
-But they are cautious
-They trigger a trap
-Activating ancient deeath machines
-The hall becomes a tomb for the expeditioners
-One man dies
-The other three run to avoid the death machines
-They run through a labyrinth deep inside the inner tomb
-Death machines pursue them relentlessly
-They encounter a chasm
-The woman swings across on a vine
-Below them is a pit of death, filled with rattlesnakes and sharp spires
-Falling is certain death
-They are forced to cross
-The man pulls the vine
-He swings across
-The other man falls to his death
-The couple race deeper into the tomb
-Its pitch black
-They feel water in the room
-The death machines will be coming soon
-They descend into the water
-The current is strong, they are pulled away
-The water swallows them as they are pulled under
-They can see a light
-The current takes them through an opening
-An outlet flows into the mouth of the river
-They are freed from the tomb
-They live to tell the tale
-But at what cost?
-The man and the woman come to the riverbank
-They lay and breathe
-The man has retrieved the treasure they claimed
-The woman has plans of her own
-They draws a pistol
-The man has a pained expression
-Why have you done this?
-I serve the highest king she says
-She shows a tattoo of an ancient insignia
-[camera closeup on his eyes, betrayed expression]
-He looks into her eyes
-Her irises shift, she is not human
-She shoots him
-Recovers the treasure
-And walks away from the scene
-In the desert, She comes to a parked horse
-Mounts and rides into the dunes.
-END just as the song finishes.
-`;
+  // List of Scenes:
+  // <video_scenes>
+  // Desert scene
+  // 2X speed fly-over
+  // A group of exeditioners with a caravan of camels
+  // Crossing the Egyptian deserts
+  // To arrive at the tomb of the ancient Egyptian king
+  // They enter the tomb cautiously,
+  // A man a woman and two other men
+  // They quickly realize the tomb is laid with traps
+  // They’re forced to move deeper into the tomb,
+  //  Becoming trapped
+  // They enter the hall of the king
+  // This is what they have been looking for
+  // The man and the woman approach the sarcophagus
+  // They expect to find treasure here
+  // But they are cautious
+  // They trigger a trap
+  // Activating ancient deeath machines
+  // The hall becomes a tomb for the expeditioners
+  // One man dies
+  // The other three run to avoid the death machines
+  // They run through a labyrinth deep inside the inner tomb
+  // Death machines pursue them relentlessly
+  // They encounter a chasm
+  // The woman swings across on a vine
+  // Below them is a pit of death, filled with rattlesnakes and sharp spires
+  // Falling is certain death
+  // They are forced to cross
+  // The man pulls the vine
+  // He swings across
+  // The other man falls to his death
+  // The couple race deeper into the tomb
+  // Its pitch black
+  // They feel water in the room
+  // The death machines will be coming soon
+  // They descend into the water
+  // The current is strong, they are pulled away
+  // The water swallows them as they are pulled under
+  // They can see a light
+  // The current takes them through an opening
+  // An outlet flows into the mouth of the river
+  // They are freed from the tomb
+  // They live to tell the tale
+  // But at what cost?
+  // The man and the woman come to the riverbank
+  // They lay and breathe
+  // The man has retrieved the treasure they claimed
+  // The woman has plans of her own
+  // They draws a pistol
+  // The man has a pained expression
+  // Why have you done this?
+  // I serve the highest king she says
+  // She shows a tattoo of an ancient insignia
+  // [camera closeup on his eyes, betrayed expression]
+  // He looks into her eyes
+  // Her irises shift, she is not human
+  // She shoots him
+  // Recovers the treasure
+  // And walks away from the scene
+  // In the desert, She comes to a parked horse
+  // Mounts and rides into the dunes.
+  // END just as the song finishes.
+  // `;
+
+  const creativePrompt = `A man and a woman having an emotional conversation. Rainy night scene on a suburban street. Cinematic lighting with reflections on wet pavement. Close-up shots capturing their facial expressions and emotions. Shallow depth of field.`;
 
   const testPrompt = `
 Create a short proof of concept video with exactly 5 scenes.

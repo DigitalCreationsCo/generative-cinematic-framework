@@ -26,7 +26,6 @@ export const buildVideoGenerationParams = (params: { prompt: GenerateVideosParam
     model: "veo-3.1-generate-preview",
     ...params,
     config: {
-        enhancePrompt: false,
         ...params.config
     },
 });

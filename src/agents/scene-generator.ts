@@ -2,9 +2,9 @@ import { PersonGeneration, VideoGenerationReferenceType } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Scene } from "../types";
 import ffmpeg from "fluent-ffmpeg";
-import { buildVideoGenerationParams, buildllmParams } from "../llm-params";
+import { buildVideoGenerationParams, buildllmParams } from "../llm/google/llm-params";
 import fs from "fs";
-import { formatTime } from "../utils";
+import { formatTime, roundToValidDuration } from "../utils";
 import { retryLlmCall } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
 
@@ -27,13 +27,17 @@ export class SceneGeneratorAgent {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-            const videoUrl = await this.generateVideo(
-                enhancedPrompt,
-                scene.duration,
-                scene.id,
-                previousFrameUrl,
-                characerterReferenceUrls
-            );
+            const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls);
+
+            const onRetry = async (error: any, attempt: number, currentPrompt: string) => {
+                const errorMessage = JSON.stringify(error);
+                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
+                    console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error. Sanitizing prompt...`);
+                    return await this.sanitizePrompt(currentPrompt, errorMessage);
+                }
+            };
+
+            const videoUrl = await retryLlmCall(llmCall, enhancedPrompt, { maxRetries: 2, initialDelay: 1000, backoffFactor: 2 }, onRetry);
 
             let lastFrameUrl: string | undefined;
             try {
@@ -52,26 +56,6 @@ export class SceneGeneratorAgent {
             console.error(`   ✗ Failed to generate scene ${scene.id}:`, error);
             throw error; // Re-throw to be handled by the workflow
         }
-    }
-
-    private async generateVideo(
-        prompt: string,
-        duration: number,
-        sceneId: number,
-        startFrame?: string,
-        characerterReferenceUrls?: string[],
-    ): Promise<string> {
-        const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, duration, sceneId, startFrame, characerterReferenceUrls);
-
-        const onRetry = async (error: any, attempt: number, currentPrompt: string) => {
-            const errorMessage = JSON.stringify(error);
-            if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
-                console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error. Sanitizing prompt...`);
-                return await this.sanitizePrompt(currentPrompt, errorMessage);
-            }
-        };
-
-        return retryLlmCall(llmCall, prompt, { maxRetries: 2, initialDelay: 1000, backoffFactor: 2 }, onRetry);
     }
 
     private async sanitizePrompt(originalPrompt: string, errorMessage: string): Promise<string> {
@@ -131,19 +115,14 @@ export class SceneGeneratorAgent {
         const outputMimeType = "video/mp4";
         const objectPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: sceneId });
 
-        let durationSeconds = 6;
-        if (typeof duration === 'number' && [ 4, 6, 8 ].includes(duration)) {
-            durationSeconds = duration;
-        }
+        let durationSeconds = roundToValidDuration(duration);
 
-        // Get start frame info if present
-        let imageParam = undefined;
-        if (startFrame) {
-            const mimeType = await this.storageManager.getObjectMimeType(startFrame);
-            imageParam = { gcsUri: startFrame, mimeType: mimeType || "image/png" };
-        }
+        const imageParam = startFrame ? {
+            gcsUri: startFrame,
+            mimeType: await this.storageManager.getObjectMimeType(startFrame) || "image/png"
+        } : undefined;
 
-        const referenceImages = characerterReferenceUrls ? await Promise.all(characerterReferenceUrls.map(async url => ({
+        const characterReferenceImages = characerterReferenceUrls ? await Promise.all(characerterReferenceUrls.map(async url => ({
             image: {
                 gcsUri: this.storageManager.getGcsUrl(url),
                 mimeType: await this.storageManager.getObjectMimeType(url) || "image/png",
@@ -155,7 +134,7 @@ export class SceneGeneratorAgent {
             prompt,
             image: imageParam,
             config: {
-                referenceImages,
+                referenceImages: characterReferenceImages,
                 resolution: '720p',
                 durationSeconds,
                 numberOfVideos: 1,
@@ -172,19 +151,20 @@ export class SceneGeneratorAgent {
 
         console.log(`   ... Operation started: ${operation.name}`);
 
+        const SCENE_GEN_WAITTIME_MS = 10000;
         while (!operation.done) {
             if (Date.now() - startTime > TIMEOUT_MS) {
                 throw new Error(`Video generation timed out after ${TIMEOUT_MS / 1000 / 60} minutes`);
             }
 
-            console.log("   ... waiting for video generation to complete");
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            console.log(`   ... waiting ${SCENE_GEN_WAITTIME_MS / 1000}s for video generation to complete`);
+            await new Promise(resolve => setTimeout(resolve, SCENE_GEN_WAITTIME_MS));
 
             operation = await this.llm.getVideosOperation({ operation });
         }
 
         if (operation.error) {
-            throw operation.error; // Throw raw error object to be caught by retry logic
+            throw operation.error; 
         }
 
         const generatedVideos = operation.response?.generatedVideos;
@@ -331,7 +311,7 @@ export class SceneGeneratorAgent {
             console.log(`   ... Uploading stitched video to ${objectPath}`);
             const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
             
-            console.log(`   ✓ Stitched video uploaded: ${gcsUri}`);
+            console.log(`   ✓ Rendered video uploaded: ${this.storageManager.getPublicUrl(gcsUri)}`);
             return gcsUri;
 
         } catch (error) {

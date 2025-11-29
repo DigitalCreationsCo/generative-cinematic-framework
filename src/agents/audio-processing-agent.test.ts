@@ -58,7 +58,7 @@ describe('AudioProcessingAgent', () => {
       }],
     } as any);
 
-    const result = await audioProcessingAgent.processAudioToStoryboard(localAudioPath);
+    const result = await audioProcessingAgent.processAudioToScenes(localAudioPath);
 
     expect(result).toEqual(mockAnalysis);
     expect(storageManager.uploadFile).toHaveBeenCalledWith(localAudioPath, 'audio/audio.mp3');
@@ -84,7 +84,7 @@ describe('AudioProcessingAgent', () => {
       }],
     } as any);
 
-    await audioProcessingAgent.processAudioToStoryboard(localAudioPath);
+    await audioProcessingAgent.processAudioToScenes(localAudioPath);
 
     expect(uploadFileSpy).not.toHaveBeenCalled();
   });
@@ -100,7 +100,7 @@ describe('AudioProcessingAgent', () => {
       candidates: [],
     } as any);
 
-    await expect(audioProcessingAgent.processAudioToStoryboard(localAudioPath)).rejects.toThrow('No valid analysis result from LLM');
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath)).rejects.toThrow('No valid analysis result from LLM');
   });
 
   it('should throw an error if genAI.models.generateContent throws', async () => {
@@ -113,7 +113,7 @@ describe('AudioProcessingAgent', () => {
     vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
     vi.spyOn(genAI.models, 'generateContent').mockRejectedValue(new Error(errorMessage));
 
-    await expect(audioProcessingAgent.processAudioToStoryboard(localAudioPath)).rejects.toThrow(errorMessage);
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath)).rejects.toThrow(errorMessage);
   });
 
   describe('getAudioDuration', () => {

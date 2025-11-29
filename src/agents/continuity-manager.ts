@@ -6,9 +6,11 @@ import {
 } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { GoogleGenAI, Modality } from "@google/genai";
-import { buildllmParams } from "../llm-params";
+import { buildllmParams } from "../llm/google/llm-params";
 import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
+import { buildCharacterImagePrompt } from "../prompts/character-image-instruction";
+import { buildSceneContinuityPrompt, continuitySystemPrompt } from "../prompts/continuity-instructions";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
@@ -19,7 +21,7 @@ export class ContinuityManagerAgent {
     private imageModel: GoogleGenAI;
     private storageManager: GCPStorageManager;
     private frameComposer: FrameCompositionAgent;
-    private ASSET_GEN_TIMEOUT_MS = 30000;
+    private ASSET_GEN_COOLDOWN_MS = 30000;
 
     constructor(
         llm: GoogleGenAI,
@@ -50,13 +52,6 @@ export class ContinuityManagerAgent {
         if (charactersInScene.length > 0 && startFrameUrl) {
             console.log(`   [ContinuityManager] Character(s) detected in scene ${scene.id}. Generating composite frame...`);
             characterReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
-            // if (characterReferenceUrls.length > 0) {
-            //     startFrameUrl = await this.frameComposer.generateCompositeReferenceFrame(
-            //         startFrameUrl,
-            //         characterReferenceUrls,
-            //         scene.id
-            //     );
-            // }
         }
 
         const enhancedPrompt = await this.enhanceScenePrompt(scene, characters, context);
@@ -65,7 +60,7 @@ export class ContinuityManagerAgent {
     }
 
 
-    async generateCharacterReferences(
+    async generateCharacterAssets(
         characters: Character[],
     ): Promise<Character[]> {
         console.log(`\n🎨 Generating reference images for ${characters.length} characters...`);
@@ -75,28 +70,11 @@ export class ContinuityManagerAgent {
         for (const character of characters) {
             console.log(`  → Generating: ${character.name}`);
 
-            const imagePrompt = this.buildCharacterImagePrompt(character);
+            const imagePrompt = buildCharacterImagePrompt(character);
 
             try {
                 const outputMimeType = "image/png";
 
-                // const imageGenParams = buildImageGenerationParams({
-                //     prompt: imagePrompt,
-                //     config: {
-                //         outputMimeType,
-                //         numberOfImages: 1,
-                //         guidanceScale: 15,
-                //         seed: Math.floor(Math.random() * 1000000),
-                //         addWatermark: false,
-                //     },
-                // });
-
-                // const response = await this.imageModel.models.generateImages(imageGenParams);
-                // if (!response.generatedImages?.[0]?.image?.imageBytes) {
-                //     throw new Error("No image generated");
-                // }
-                // const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, "base64");
-                
                 const result = await this.imageModel.models.generateContent({
                     model: "gemini-3-pro-image-preview",
                     contents: [ imagePrompt ],
@@ -137,25 +115,16 @@ export class ContinuityManagerAgent {
 
             } catch (error) {
                 console.error(`    ✗ Failed to generate image for ${character.name}:`, error);
-                // Continue with empty reference
                 updatedCharacters.push({
                     ...character,
                     referenceImageUrls: [],
                 });
             } finally {
-                console.log(`   ... waiting ${this.ASSET_GEN_TIMEOUT_MS / 1000}s for rate limit reset`);
-                await new Promise(resolve => setTimeout(resolve, this.ASSET_GEN_TIMEOUT_MS));
+                console.log(`   ... waiting ${this.ASSET_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
+                await new Promise(resolve => setTimeout(resolve, this.ASSET_GEN_COOLDOWN_MS));
             }
         }
         return updatedCharacters;
-    }
-
-    private buildCharacterImagePrompt(character: Character): string {
-        return `High-quality, photorealistic portrait: 
-        ${JSON.stringify(character, null, 2)}
-
-    Style: Professional cinematic photography, studio lighting, sharp focus, high detail, 8K quality.
-    Camera: Medium shot, neutral expression, clear view of costume and features.`;
     }
 
     async enhanceScenePrompt(
@@ -163,7 +132,6 @@ export class ContinuityManagerAgent {
         characters: Character[],
         context: ContinuityContext
     ): Promise<string> {
-        const systemPrompt = `You are a continuity supervisor for a cinematic production. Your job is to enhance scene prompts with precise continuity details to ensure visual consistency. Given: 1. A base scene description 2. Character reference details 3. Previous scene context. Generate an enhanced prompt that includes: - Exact character appearance details (same hairstyle, same clothing, same accessories) -Exact lighting consistency notes - Exact spatial continuity (character positions relative to previous scene) - Props and environment details that must remain consistent. Output ONLY the enhanced prompt text, no JSON or extra formatting.`;
 
         const characterDetails = scene.characters
             .map((charId) => {
@@ -191,29 +159,11 @@ export class ContinuityManagerAgent {
     - Camera: ${context.previousScene.cameraMovement}
     - Last frame available at: ${context.previousScene.lastFrameUrl || "N/A"}`
             : "This is the first scene.";
-
-        const userPrompt = `
-    Base Scene Description:
-    ${scene.description}
-
-    Shot Type: ${scene.shotType}
-    Camera Movement: ${scene.cameraMovement}
-    Lighting: ${scene.lighting}
-    Mood: ${scene.mood}
-
-    Characters Present:
-    ${characterDetails}
-
-    Context:
-    ${contextInfo}
-
-    Continuity Notes:
-    ${scene.continuityNotes?.join("\n")}
-
-    Enhance this prompt with precise continuity details for AI video generation.`;
+        
+        const userPrompt = buildSceneContinuityPrompt(scene, characterDetails, contextInfo);
 
         const response = await this.llm.models.generateContent(buildllmParams({
-            contents: [ systemPrompt, userPrompt ]
+            contents: [ continuitySystemPrompt, userPrompt ]
         })); 0;
         return cleanJsonOutput(response.text || "");
     }

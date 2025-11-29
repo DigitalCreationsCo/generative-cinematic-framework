@@ -73,7 +73,7 @@ describe('CompositionalAgent', () => {
         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-        const result = await compositionalAgent.enhanceStoryboard(storyboard, creativePrompt);
+        const result = await compositionalAgent.generateStoryboard(storyboard, creativePrompt);
 
         expect(result.metadata.title).toBe('Enriched Storyboard');
         expect(result.scenes[ 0 ].description).toBe('Enriched Scene 1');
@@ -118,7 +118,7 @@ describe('CompositionalAgent', () => {
         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-        await compositionalAgent.enhanceStoryboard(storyboard, creativePrompt);
+        await compositionalAgent.generateStoryboard(storyboard, creativePrompt);
 
         expect(googleGenAI.models.generateContent).toHaveBeenCalledTimes(3);
     }, 12000);
@@ -168,7 +168,7 @@ describe('CompositionalAgent', () => {
         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-        await compositionalAgent.enhanceStoryboard(storyboard, creativePrompt, { maxRetries: 2, initialDelay: 1000 });
+        await compositionalAgent.generateStoryboard(storyboard, creativePrompt, { maxRetries: 2, initialDelay: 1000 });
 
         expect(googleGenAI.models.generateContent).toHaveBeenCalledTimes(3);
     }, 30000);
@@ -208,6 +208,6 @@ describe('CompositionalAgent', () => {
         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-        await expect(compositionalAgent.enhanceStoryboard(storyboard, creativePrompt, { maxRetries: 3, initialDelay: 1000 })).rejects.toThrow('LLM call failed after multiple retries.');
+        await expect(compositionalAgent.generateStoryboard(storyboard, creativePrompt, { maxRetries: 3, initialDelay: 1000 })).rejects.toThrow('LLM call failed after multiple retries.');
     }, 150000);
 });

@@ -1,5 +1,6 @@
 
 import { Storage } from "@google-cloud/storage";
+import path from "path";
 
 export type GcsObjectType =
   | 'storyboard'
@@ -60,6 +61,21 @@ export class GCPStorageManager {
     return this.uploadBuffer(buffer, destination, "application/json");
   }
 
+  async uploadAudioFile(localPath: string): Promise<string> {
+    const fileName = path.basename(localPath);
+    const destination = `audio/${fileName}`;
+    const gcsUri = this.getGcsUrl(destination);
+
+    const exists = await this.fileExists(gcsUri);
+    if (exists) {
+        console.log(`   ... Audio file already exists at ${gcsUri}, skipping upload.`);
+        return gcsUri;
+    }
+
+    console.log(`   ... Uploading ${localPath} to GCS at ${destination}`);
+    return this.uploadFile(localPath, destination);
+  }
+  
   async downloadJSON<T>(source: string): Promise<T> {
     const bucket = this.storage.bucket(this.bucketName);
     const file = bucket.file(source);

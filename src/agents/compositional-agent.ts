@@ -27,7 +27,7 @@ export class CompositionalAgent {
     this.storageManager = storageManager;
   }
 
-  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string, retryConfig?: RetryConfig): Promise<Storyboard> {
+  async generateStoryboard(storyboard: Storyboard, creativePrompt: string, retryConfig?: RetryConfig): Promise<Storyboard> {
     console.log("   ... Enriching storyboard with a two-pass approach...");
 
     // First pass: Generate metadata, characters, and locations

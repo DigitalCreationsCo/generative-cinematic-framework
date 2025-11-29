@@ -27,7 +27,7 @@ export const formatTime = (seconds: number) => {
 };
 
 export function roundToValidDuration(duration: number): 4 | 6 | 8 {
-  if (duration <= 5) return 4;
-  if (duration <= 7) return 6;
+  // if (duration <= 5) return 4;
+  // if (duration <= 7) return 6;
   return 8;
 }

@@ -24,13 +24,13 @@ export class AudioProcessingAgent {
      * @param localAudioPath The local path to the audio file (mp3, wav).
      * @returns A promise that resolves to an array of timed scenes and the audio GCS URI.
      */
-    async processAudioToStoryboard(localAudioPath: string): Promise<AudioAnalysis> {
+    async processAudioToScenes(localAudioPath: string): Promise<AudioAnalysis> {
         console.log(`🎤 Starting audio processing for: ${localAudioPath}`);
 
         const durationSeconds = await this.getAudioDuration(localAudioPath);
         console.log(`   ... Actual audio duration (ffprobe): ${durationSeconds}s`);
 
-        const audioGcsUri = await this.uploadAudioToGcs(localAudioPath);
+        const audioGcsUri = this.storageManager.getGcsUrl(localAudioPath);
         const result = await this.analyzeAudio(audioGcsUri, durationSeconds);
 
         if (!result?.candidates?.[ 0 ]?.content?.parts?.[ 0 ]?.text) {
@@ -59,21 +59,6 @@ export class AudioProcessingAgent {
 
     private ffprobe(filePath: string, callback: (err: any, metadata: any) => void): void {
         ffmpeg.ffprobe(filePath, callback);
-    }
-
-    private async uploadAudioToGcs(localPath: string): Promise<string> {
-        const fileName = path.basename(localPath);
-        const destination = `audio/${fileName}`;
-        const gcsUri = this.storageManager.getGcsUrl(destination);
-
-        const exists = await this.storageManager.fileExists(gcsUri);
-        if (exists) {
-            console.log(`   ... Audio file already exists at ${gcsUri}, skipping upload.`);
-            return gcsUri;
-        }
-
-        console.log(`   ... Uploading ${localPath} to GCS at ${destination}`);
-        return this.storageManager.uploadFile(localPath, destination);
     }
 
     private async analyzeAudio(gcsUri: string, durationSeconds: number): Promise<GenerateContentResponse> {
