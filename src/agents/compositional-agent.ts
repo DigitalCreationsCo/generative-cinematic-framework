@@ -15,6 +15,7 @@ import {
 } from "../types";
 import { cleanJsonOutput } from "../utils";
 import { GCPStorageManager } from "../storage-manager";
+import { buildStoryboardEnrichmentInstructions } from "../prompts/storyboard-composition-instruction";
 
 export class CompositionalAgent {
   private llm: GoogleGenAI;
@@ -25,160 +26,185 @@ export class CompositionalAgent {
     this.storageManager = storageManager;
   }
 
-  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string): Promise<Storyboard> {
-    console.log("   ... Enriching scene template with narrative from creative prompt...");
-    
+  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string, { MAX_RETRIES = 3, RETRY_WAIT_TIME = 10000 } = {}): Promise<Storyboard> {
+    console.log("   ... Enriching storyboard with a two-pass approach...");
+
+    // First pass: Generate metadata, characters, and locations
+    const initialContext = await this._generateInitialContext(creativePrompt, storyboard.scenes, { MAX_RETRIES, RETRY_WAIT_TIME });
+    console.log("Initial Context:", JSON.stringify(initialContext, null, 2));
+
     const BATCH_SIZE = 10;
     let enrichedScenes: Scene[] = [];
 
-    let storyboardMetadata = {} as Storyboard['metadata'];
-    let characters: Character[] = [];
-    let locations: Location[] = [];
-
     const ScenesOnlySchema = z.object({
-        scenes: z.array(SceneSchema)
+      scenes: z.array(SceneSchema)
     });
 
     for (let i = 0; i < storyboard.scenes.length; i += BATCH_SIZE) {
-      const chunk = storyboard.scenes.slice(i, i + BATCH_SIZE);
+      const chunkScenes = storyboard.scenes.slice(i, i + BATCH_SIZE);
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       const totalBatches = Math.ceil(storyboard.scenes.length / BATCH_SIZE);
-      console.log(`   ... Processing batch ${batchNum}/${totalBatches} (${chunk.length} scenes)...`);
-        
-      const isFirstBatch = i === 0;
+      console.log(`   ... Processing scene batch ${batchNum}/${totalBatches} (${chunkScenes.length} scenes)...`);
 
-      const systemPrompt = `You are an expert cinematic director and storyboard artist.
-      Your task is to analyze a creative prompt and generate a complete, professional storyboard that synchronizes visual storytelling with musical structure.
-        
-        You are processing BATCH ${batchNum} of ${totalBatches}.
-        
-        ${isFirstBatch ? 
-        `Your task is to:
-        1. Define the global metadata, characters, and locations based on the creative prompt.
-        2. Enrich the provided scenes with visual details.` : 
-        `Your task is to enrich the provided scenes, maintaining consistency with the established characters, locations, and narrative flow.`}
+      const jsonSchema = zodToJSONSchema(ScenesOnlySchema);
 
-        **PRESERVING MUSICAL STRUCTURE:**
-        - Keep ALL scene timings EXACTLY as provided (timeStart, timeEnd, duration)
-        - Keep musicDescription, musicalChange, musicalIntensity, musicalMood, musicalTempo
-        - Keep transitionType
-        - Keep audioSync
+      const systemPrompt = buildStoryboardEnrichmentInstructions({
+        isFirstBatch: false,
+        batchNum,
+        totalBatches,
+      }, jsonSchema);
 
-        **ENRICHING WITH NARRATIVE:**
-        - Replace placeholder descriptions with vivid visual storytelling from the creative prompt
-        - Assign appropriate shotType, cameraMovement, lighting, mood
-        - Add continuityNotes
-        - Assign charactersPresent (from established list)
-        - Assign locationId (from established list)
+      let context = `ESTABLISHED CONTEXT:\nCREATIVE PROMPT:\n${creativePrompt}\n`;
+      context += `TITLE: ${initialContext.metadata.title}\n`;
+      context += `CHARACTERS:\n${JSON.stringify(initialContext.characters, null, 2)}\n`;
+      context += `LOCATIONS:\n${JSON.stringify(initialContext.locations, null, 2)}\n`;
+      if (enrichedScenes.length > 0) {
+        const lastScene = enrichedScenes[ enrichedScenes.length - 1 ];
+        context += `PREVIOUS SCENE:\n`;
+        context += `${JSON.stringify(lastScene, null, 2)}\n`;
+      }
+      context += `SCENES TO ENRICH (Batch ${batchNum}):\n${JSON.stringify(chunkScenes, null, 2)}`;
 
-        **NARRATIVE FLOW:**
-        - Ensure smooth transition from previous scenes.
-        - Match visual intensity to musical intensity.
+      let retries = 0;
+      let success = false;
+      let batchResult: { scenes: Scene[]; } | null = null;
 
-        ${!isFirstBatch ? `**ESTABLISHED CONTEXT:**
-        - Title: ${storyboardMetadata?.title || "Untitled"}
-        - Characters: ${(characters || []).map(c => c.name).join(", ")}
-        - Locations: ${(locations || []).map(l => l.name).join(", ")}` : ''}
-
-        Return a JSON object matching the schema.`;
-
-        let context = `CREATIVE PROMPT:\n${creativePrompt}\n\n`;
-        if (i > 0 && enrichedScenes.length > 0) {
-            const lastScene = enrichedScenes[enrichedScenes.length - 1];
-            context += `PREVIOUS SCENE CONTEXT:\n`;
-            context += `Last Scene ID: ${lastScene.id}\n`;
-            context += `Last Scene Time: ${lastScene.timeEnd}\n`;
-            context += `Last Scene Description: ${lastScene.description}\n\n`;
-        }
-        context += `SCENES TO ENRICH (Batch ${batchNum}):\n${JSON.stringify(chunk, null, 2)}`;
-
-        const schema = isFirstBatch ? StoryboardSchema : ScenesOnlySchema;
-        const jsonSchema = zodToJSONSchema(schema);
-
-        const llmParams = {
+      while (!success && retries < MAX_RETRIES) {
+        try {
+          const response = await this.llm.models.generateContent({
             model: "gemini-2.5-pro",
             contents: [
-                { role: 'user', parts: [ { text: systemPrompt } ] },
-                { role: 'user', parts: [ { text: context } ] }
+              { role: 'user', parts: [ { text: systemPrompt } ] },
+              { role: 'user', parts: [ { text: context } ] }
             ],
             config: {
-                responseJsonSchema: jsonSchema,
-                responseMimeType: "application/json",
-                temperature: 0.8, 
+              responseJsonSchema: zodToJSONSchema(ScenesOnlySchema),
+              responseMimeType: "application/json",
             }
-        };
+          });
+          const content = response.text;
+          if (!content) throw new Error("No content generated from LLM");
 
-        let retries = 0;
-        const MAX_RETRIES = 3;
-        let success = false;
+          const cleanedContent = cleanJsonOutput(content);
+          batchResult = JSON.parse(cleanedContent);
+          success = true;
+          await new Promise(resolve => setTimeout(resolve, 5000));
 
-        while (!success && retries < MAX_RETRIES) {
-            try {
-                const response = await this.llm.models.generateContent(llmParams);
-                const content = response.text;
-
-                if (!content) {
-                    throw new Error("No content generated from LLM");
-                }
-
-                const cleanedContent = cleanJsonOutput(content);
-                const result:Storyboard = JSON.parse(cleanedContent);
-
-            if (isFirstBatch) {
-                storyboardMetadata = result.metadata || {};
-                characters = result.characters || [];
-                locations = result.locations || [];
-                enrichedScenes.push(...(result.scenes || []));
-            } else {
-                enrichedScenes.push(...(result.scenes || []));
-            }
-                
-                success = true;
-                await new Promise(resolve => setTimeout(resolve, 5000));
-
-            } catch (error: any) {
-                if (error.status === 429 || (error.message && error.message.includes("429"))) {
-                    retries++;
-                    const waitTime = Math.pow(2, retries) * 10000; // 20s, 40s, 80s
-                    console.warn(`   ⚠️ Rate limit hit (429) on batch ${batchNum}. Retrying in ${waitTime/1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                } else {
-                    console.error(`   ❌ Error processing batch ${batchNum}:`, error);
-                    throw error;
-                }
-            }
+        } catch (error: any) {
+          if (error.status === 429 || (error.message && error.message.includes("429"))) {
+            retries++;
+            const waitTime = Math.pow(2, retries) * RETRY_WAIT_TIME;
+            console.warn(`   ⚠️ Rate limit hit (429) on batch ${batchNum}. Retrying in ${waitTime / 1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            console.error(`   ❌ Error processing batch ${batchNum}:`, error);
+            throw error; // Rethrow for non-retriable errors
+          }
         }
-        
-        if (!success) {
-            throw new Error(`Failed to process batch ${batchNum} after ${MAX_RETRIES} retries.`);
-        }
+      }
+
+      if (!success || !batchResult) {
+        throw new Error(`Failed to process batch ${batchNum} after ${MAX_RETRIES} retries.`);
+      }
+
+      enrichedScenes.push(...batchResult.scenes);
     }
 
-    storyboard = {
+    const finalStoryboard: Storyboard = {
+      ...initialContext,
+      scenes: enrichedScenes,
       metadata: {
-        ...storyboardMetadata,
+        ...initialContext.metadata,
         totalScenes: storyboard.scenes.length,
-        duration: storyboard.scenes[ storyboard.scenes.length - 1].timeEnd 
+        duration: storyboard.scenes.length > 0 ? storyboard.scenes[ storyboard.scenes.length - 1 ].endTime : 0,
       },
-      characters,
-      locations,
-      scenes: enrichedScenes
     };
 
-    this.validateTimingPreservation(storyboard.scenes, storyboard.scenes);
+    this.validateTimingPreservation(storyboard.scenes, finalStoryboard.scenes);
 
     const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
-    await this.storageManager.uploadJSON(storyboard, storyboardPath);
+    await this.storageManager.uploadJSON(finalStoryboard, storyboardPath);
 
     console.log(`✓ Storyboard enriched successfully:`);
-    console.log(`  - Title: ${storyboard.metadata.title || "Untitled"}`);
-    console.log(`  - Duration: ${storyboard.metadata.duration}`);
-    console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
-    console.log(`  - Characters: ${storyboard.characters.length}`);
-    console.log(`  - Locations: ${storyboard.locations.length}`);
-    console.log(`  - Key Moments: ${storyboard.metadata.keyMoments?.length || 0}`);
+    console.log(`  - Title: ${finalStoryboard.metadata.title || "Untitled"}`);
+    console.log(`  - Duration: ${finalStoryboard.metadata.duration}`);
+    console.log(`  - Total Scenes: ${finalStoryboard.metadata.totalScenes}`);
+    console.log(`  - Characters: ${finalStoryboard.characters.length}`);
+    console.log(`  - Locations: ${finalStoryboard.locations.length}`);
 
-    return storyboard;
+    return finalStoryboard;
+  }
+
+  private async _generateInitialContext(creativePrompt: string, scenes: Scene[], { MAX_RETRIES = 3, RETRY_WAIT_TIME = 10000 }): Promise<Storyboard> {
+    console.log("   ... Generating initial context (metadata, characters, locations)...");
+
+    const InitialContextSchema = z.object({
+      metadata: StoryboardSchema.shape.metadata,
+      characters: StoryboardSchema.shape.characters,
+      locations: StoryboardSchema.shape.locations,
+    });
+
+    const jsonSchema = zodToJSONSchema(InitialContextSchema);
+    const systemPrompt = buildStoryboardEnrichmentInstructions({ isFirstBatch: true, batchNum: 0, totalBatches: 0 }, jsonSchema);
+
+    // Provide a snippet of scenes for context, without overwhelming the model
+    const sceneSnippet = scenes.slice(0, 5).map(s => ({
+      description: s.description,
+      lyrics: s.lyrics,
+      mood: s.mood
+    }));
+
+    const context = `
+      ESTABLISHED CONTEXT:
+      CREATIVE PROMPT:
+      ${creativePrompt}
+
+      SCENE SNIPPET FOR CONTEXT:
+      ${JSON.stringify(sceneSnippet, null, 2)}
+    `;
+
+    let retries = 0;
+    while (retries < MAX_RETRIES) {
+      try {
+        const response = await this.llm.models.generateContent({
+          model: "gemini-2.5-pro",
+          contents: [
+            { role: 'user', parts: [ { text: systemPrompt } ] },
+            { role: 'user', parts: [ { text: context } ] }
+          ],
+          config: {
+            responseJsonSchema: zodToJSONSchema(InitialContextSchema),
+            responseMimeType: "application/json",
+          }
+        });
+        const content = response.text;
+        if (!content) throw new Error("No content generated from LLM for initial context");
+
+        const cleanedContent = cleanJsonOutput(content);
+        const parsedContext = JSON.parse(cleanedContent);
+
+        if (!parsedContext.metadata) {
+          throw new Error("Failed to generate metadata in initial context");
+        }
+
+        return {
+          ...parsedContext,
+          scenes: [] // Scenes will be populated in the second pass
+        };
+
+      } catch (error: any) {
+        if (error.status === 429 || (error.message && error.message.includes("429"))) {
+          retries++;
+          const waitTime = Math.pow(2, retries) * RETRY_WAIT_TIME;
+          console.warn(`   ⚠️ Rate limit hit (429) on initial context generation. Retrying in ${waitTime / 1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          console.error(`   ❌ Error generating initial context:`, error);
+          throw error;
+        }
+      }
+    }
+    throw new Error(`Failed to generate initial context after ${MAX_RETRIES} retries.`);
   }
 
   private validateTimingPreservation(originalScenes: Scene[], enrichedScenes: Scene[]): void {
@@ -190,8 +216,8 @@ export class CompositionalAgent {
       const orig = originalScenes[ i ];
       const enrich = enrichedScenes[ i ];
 
-      if (orig.timeStart !== enrich.timeStart || orig.timeEnd !== enrich.timeEnd) {
-        console.warn(`⚠️ Timing mismatch in scene ${i + 1}: original=[${orig.timeStart}-${orig.timeEnd}], enriched=[${enrich.timeStart}-${enrich.timeEnd}]`);
+      if (orig.startTime !== enrich.startTime || orig.endTime !== enrich.endTime) {
+        console.warn(`⚠️ Timing mismatch in scene ${i + 1}: original=[${orig.startTime}-${orig.endTime}], enriched=[${enrich.startTime}-${enrich.endTime}]`);
       }
 
       if (orig.duration !== enrich.duration) {

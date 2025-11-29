@@ -19,3 +19,15 @@ export function cleanJsonOutput(output: string): string {
   
   return clean;
 }
+
+export const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+export function roundToValidDuration(duration: number): 4 | 6 | 8 {
+  if (duration <= 5) return 4;
+  if (duration <= 7) return 6;
+  return 8;
+}

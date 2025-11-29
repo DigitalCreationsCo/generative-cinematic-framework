@@ -2,16 +2,19 @@
   "compilerOptions": {
     "target": "es2022",
     "module": "commonjs",
-    "rootDir": "src",
     "outDir": "dist",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": [
+      "vitest/globals"
+    ]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "vitest.config.ts"
   ],
   "exclude": [
     "node_modules"

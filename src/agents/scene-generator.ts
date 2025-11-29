@@ -4,6 +4,7 @@ import { Scene } from "../types";
 import ffmpeg from "fluent-ffmpeg";
 import { buildllmParams, buildVideoGenerationParams } from "../llm-params";
 import fs from "fs";
+import { formatTime } from "../utils";
 
 export class SceneGeneratorAgent {
     private llm: GoogleGenAI;
@@ -22,7 +23,7 @@ export class SceneGeneratorAgent {
         previousFrameUrl?: string
     ): Promise<Scene> {
         try {
-            console.log(`\n🎬 Generating Scene ${scene.id}: ${scene.timeStart} - ${scene.timeEnd}`);
+            console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
             const videoUrl = await this.generateVideo(
@@ -51,19 +52,39 @@ export class SceneGeneratorAgent {
         }
     }
 
-    private async sanitizePrompt(originalPrompt: string): Promise<string> {
+    private async sanitizePrompt(originalPrompt: string, errorMessage: string): Promise<string> {
         console.log("   ⚠️ Safety filter triggered. Sanitizing prompt...");
         try {
-            const systemPrompt = `Rewrite the following video generation prompt to remove any references to real people, celebrities, or public figures. 
+            const prompt = `Rewrite the following video generation prompt to avoid violating AI usage guidelines, including remove any references to real people, celebrities, or public figures. 
             Describe characters using only generic physical attributes (e.g. "a tall man with short hair" instead of "looks like Tom Cruise"). 
-            Ensure the prompt is safe and will not trigger celebrity recognition filters. 
+            Read the error message carefully to understand what triggered the safety filter. Ensure the prompt is safe and will not trigger safety filters. 
             Keep the visual style, action, and lighting instructions intact.
-            Output ONLY the sanitized prompt text.`;
+            Output ONLY the sanitized prompt text.
+            Refer to this list of safety error codes for guidance:
+            
+            Safety Error Codes:
+            - 58061214, 17301594: Child - Rejects requests to generate content depicting children if personGeneration isn't set to "allow_all" or if the project isn't on the allowlist for this feature.
+            - 29310472, 15236754: Celebrity - Rejects requests to generate a photorealistic representation of a prominent person or if the project isn't on the allowlist for this feature.
+            - 64151117, 42237218: Video safety violation - Detects content that's a safety violation.
+            - 62263041:	Dangerous content - Detects content that's potentially dangerous in nature.
+            - 57734940, 22137204: Hate - Detects hate-related topics or content.
+            - 74803281, 29578790, 42876398:	Other - Detects other miscellaneous safety issues with the request
+            - 92201652:	Personal information - Detects Personally Identifiable Information (PII) in the text, such as mentioning a credit card number, home addresses, or other such information.
+            - 89371032, 49114662, 72817394:	Prohibited content - Detects the request of prohibited content in the request.
+            - 90789179, 63429089, 43188360:	Sexual	Detects content that's sexual in nature.
+            - 78610348:	Toxic - Detects toxic topics or content in the text.
+            - 61493863, 56562880: Violence - Detects violence-related content from the video or text.
+            - 32635315:	Vulgar - Detects vulgar topics or content from the text.
+            
+            Error message: ${errorMessage}
+
+            Original Prompt: ${originalPrompt}
+            `;
 
             const response = await this.llm.models.generateContent(buildllmParams({
                 model: 'gemini-3-pro-preview',
                 contents: [
-                    { role: 'user', parts: [{ text: systemPrompt + "\n\n" + originalPrompt }] }
+                    { role: 'user', parts: [{ text: prompt }] }
                 ],
             }));
             
@@ -98,7 +119,7 @@ export class SceneGeneratorAgent {
                 if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
                     console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error.`);
                     if (attempt < maxAttempts) {
-                        currentPrompt = await this.sanitizePrompt(currentPrompt);
+                        currentPrompt = await this.sanitizePrompt(currentPrompt, errorMessage);
                         continue; // Retry with new prompt
                     }
                 }

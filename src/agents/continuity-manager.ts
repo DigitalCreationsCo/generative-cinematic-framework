@@ -43,7 +43,7 @@ export class ContinuityManagerAgent {
 
         // Check if any character in the scene requires a composite frame
         const charactersInScene = castList.characters.filter(char =>
-            scene.charactersPresent.includes(char.id)
+            scene.characters.includes(char.id)
         );
 
         if (charactersInScene.length > 0 && startFrameUrl) {
@@ -127,14 +127,8 @@ export class ContinuityManagerAgent {
     }
 
     private buildCharacterImagePrompt(character: Character): string {
-        return `High-quality, photorealistic portrait of ${character.description}.
-    Physical details:
-    - Hair: ${character.physicalTraits.hair}
-    - Clothing: ${character.physicalTraits.clothing}
-    - Accessories: ${character.physicalTraits.accessories.join(", ")}
-    - Distinctive features: ${character.physicalTraits.distinctiveFeatures.join(", ")}
-
-    Additional notes: ${character.appearanceNotes.join(". ")}
+        return `High-quality, photorealistic portrait: 
+        ${JSON.stringify(character, null, 2)}
 
     Style: Professional cinematic photography, studio lighting, sharp focus, high detail, 8K quality.
     Camera: Medium shot, neutral expression, clear view of costume and features.`;
@@ -145,14 +139,14 @@ export class ContinuityManagerAgent {
         characters: Character[],
         context: ContinuityContext
     ): Promise<string> {
-        const systemPrompt = `You are a continuity supervisor for a cinematic production. Your job is to enhance scene prompts with precise continuity details to ensure visual consistency. Given: 1. A base scene description 2. Character reference details 3. Previous scene context. Generate an enhanced prompt that includes: - Exact character appearance details (same hairstyle, same clothing, same accessories) - Lighting consistency notes - Spatial continuity (character positions relative to previous scene) - Props and environment details that must remain consistent. Output ONLY the enhanced prompt text, no JSON or extra formatting.`;
+        const systemPrompt = `You are a continuity supervisor for a cinematic production. Your job is to enhance scene prompts with precise continuity details to ensure visual consistency. Given: 1. A base scene description 2. Character reference details 3. Previous scene context. Generate an enhanced prompt that includes: - Exact character appearance details (same hairstyle, same clothing, same accessories) -Exact lighting consistency notes - Exact spatial continuity (character positions relative to previous scene) - Props and environment details that must remain consistent. Output ONLY the enhanced prompt text, no JSON or extra formatting.`;
 
-        const characterDetails = scene.charactersPresent
+        const characterDetails = scene.characters
             .map((charId) => {
                 const char = characters.find((c) => c.id === charId);
                 if (!char) return "";
 
-                const state = context.characterStates.get(charId);
+                const state = context.characters.get(charId);
                 return `
     Character: ${char.name} (ID: ${char.id})
     - Reference Images: ${(char.referenceImageUrls || []).join(", ")}
@@ -190,7 +184,7 @@ export class ContinuityManagerAgent {
     ${contextInfo}
 
     Continuity Notes:
-    ${scene.continuityNotes.join("\n")}
+    ${scene.continuityNotes?.join("\n")}
 
     Enhance this prompt with precise continuity details for AI video generation.`;
 
@@ -205,12 +199,11 @@ export class ContinuityManagerAgent {
         context: ContinuityContext,
         characters: Character[]
     ): ContinuityContext {
-        // Update character states
-        scene.charactersPresent.forEach((charId) => {
+        scene.characters.forEach((charId) => {
             const char = characters.find((c) => c.id === charId);
             if (!char) return;
 
-            context.characterStates.set(charId, {
+            context.characters.set(charId, {
                 lastSeen: scene.id,
                 currentAppearance: {
                     hair: char.physicalTraits.hair,

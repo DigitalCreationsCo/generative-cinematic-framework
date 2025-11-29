@@ -3,6 +3,8 @@
 // Google Vertex AI + LangGraph + GCP Storage
 // ============================================================================
 
+const LOCAL_AUDIO_PATH = "audio/Blind_Melon_-_Make_a_Difference.mp3";
+
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegBin from "@ffmpeg-installer/ffmpeg";
 import ffprobeBin from "@ffprobe-installer/ffprobe";
@@ -28,8 +30,6 @@ import { AudioProcessingAgent } from "./agents/audio-processing-agent";
 
 import * as dotenv from "dotenv";
 dotenv.config();
-
-const LOCAL_AUDIO_PATH = "audio/Between_the_Buried_and_Me_-_Obfuscation.mp3";
 
 class CinematicVideoWorkflow {
   private graph: StateGraph<GraphState>;
@@ -91,13 +91,16 @@ class CinematicVideoWorkflow {
 
     workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
       console.log("\n📋 PHASE 1a: Creating Timed Scenes from Audio...");
-      const { scenes, audioGcsUri } = await this.audioProcessingAgent.processAudioToStoryboard(
+      const { segments, audioGcsUri, totalDuration } = await this.audioProcessingAgent.processAudioToStoryboard(
         state.initialPrompt, 
       );
 
       return {
         ...state,
-        storyboard: { scenes } as Storyboard, 
+        storyboard: {
+          metadata: { duration: totalDuration },
+          scenes: segments,
+        }, 
         audioGcsUri,
       };
     });
@@ -107,7 +110,7 @@ class CinematicVideoWorkflow {
         if (!state.creativePrompt) throw new Error("No creative prompt available");
         console.log("\n📋 PHASE 1b: Enhancing Storyboard with Prompt...");
         const storyboard = await this.compositionalAgent.enhanceStoryboard(
-            state.storyboard.scenes,
+            state.storyboard,
             state.creativePrompt
         );
 
@@ -117,8 +120,8 @@ class CinematicVideoWorkflow {
             currentSceneIndex: 0,
             generatedScenes: [],
             continuityContext: {
-                characterStates: new Map(),
-                locationStates: new Map(),
+                characters: new Map(),
+                locations: new Map(),
             },
         };
     });
@@ -257,8 +260,8 @@ class CinematicVideoWorkflow {
       generatedScenes: [],
       characters: [],
       continuityContext: {
-        characterStates: new Map(),
-        locationStates: new Map(),
+        characters: new Map(),
+        locations: new Map(),
       },
       errors: [],
     };

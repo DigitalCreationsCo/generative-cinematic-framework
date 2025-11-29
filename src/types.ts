@@ -1,8 +1,6 @@
 import { z } from "zod";
 
-export const zodToJSONSchema = (schema: z.ZodType) => {
-  return schema as any; // Type assertion for compatibility
-};
+export const zodToJSONSchema = (schema: z.ZodType) => z.toJSONSchema(schema);
 
 // ============================================================================
 // CHARACTER SCHEMAS
@@ -63,66 +61,73 @@ export const LocationStateSchema = z.object({
 export type LocationState = z.infer<typeof LocationStateSchema>;
 
 // ============================================================================
+// AUDIO ANALYSIS SCHEMAS (Internal to AudioProcessingAgent)
+// ============================================================================
+
+export const AudioSegmentSchema = z.object({
+  startTime: z.number().describe("start time in seconds"),
+  endTime: z.number().describe("end time in seconds"),
+  duration: z.union([ z.literal(4), z.literal(6), z.literal(8) ]).describe("Duration in seconds (4, 6, or 8)"),
+  type: z.enum([ "lyrical", "instrumental", "transition", "breakdown", "solo", "climax" ]),
+  lyrics: z.string().describe("Transcribed lyrics if lyrical, empty otherwise"),
+  description: z.string().describe("Detailed description of the sound, instruments, tempo, mood"),
+  musicChange: z.string().describe("Notable changes: key signature, tempo shift, instrumentation changes, dynamic shifts"),
+  intensity: z.enum([ "low", "medium", "high", "extreme" ]).describe("Energy level of this segment"),
+  mood: z.string().describe("Emotional tone (e.g., aggressive, melancholic, triumphant, mysterious"),
+  tempo: z.enum([ "slow", "moderate", "fast", "very_fast" ]).describe("Pace of the music"),
+  transitionType: z.string().describe("cinematic transition type (e.g., Cut, Dissolve, Fade, Smash Cut, Wipe)"),
+});
+export type AudioSegment = z.infer<typeof AudioSegmentSchema>;
+
+export const AudioAnalysisSchema = z.object({
+  totalDuration: z.number().describe("Total duration of the track in seconds"),
+  segments: z.array(AudioSegmentSchema).describe("list of analyzed musical segments"),
+});
+export type AudioAnalysis = z.infer<typeof AudioAnalysisSchema> & {
+  audioGcsUri: string;
+};
+
+// ============================================================================
 // SCENE SCHEMAS
 // ============================================================================
 
-export const SceneSchema = z.object({
-  id: z.number().describe("unique numeric identifier for the scene"),
-  timeStart: z.string().describe("start time in MM:SS format"),
-  timeEnd: z.string().describe("end time in MM:SS format"),
-  duration: z.union([ z.literal(4), z.literal(6), z.literal(8) ]).describe("duration in seconds (4, 6, or 8)"),
-  shotType: z.string().describe("camera shot type (e.g., wide, medium, close-up, POV, over-the-shoulder)"),
-  description: z.string().describe("detailed scene description with narrative and visual elements"),
+export const SceneSchema = z.intersection(
+  AudioSegmentSchema,
+  z.object({
+    id: z.number().describe("unique numeric identifier for the scene"),
+    shotType: z.string().describe("camera shot type (e.g., wide, medium, close-up, POV, over-the-shoulder)"),
+    description: z.string().describe("Detailed description of the scene's music and narrative elements"),
 
-  // Musical Analysis Fields (from AudioProcessingAgent)
-  musicDescription: z.string().describe("detailed description of the musical soundscape, instruments, patterns").optional(),
-  musicalChange: z.string().describe("notable musical changes: tempo shifts, key changes, instrumentation changes").optional(),
-  musicalIntensity: z.enum([ "low", "medium", "high", "extreme" ]).describe("energy level of the music").optional(),
-  musicalMood: z.string().describe("emotional tone of the music (e.g., aggressive, melancholic, triumphant)").optional(),
-  musicalTempo: z.enum([ "slow", "moderate", "fast", "very_fast" ]).describe("pace of the music").optional(),
-  transitionType: z.string().describe("cinematic transition type (e.g., Cut, Dissolve, Fade, Smash Cut, Wipe)").optional(),
+    // Cinematic Fields (from CompositionalAgent)
+    cameraMovement: z.string().describe("camera movement description (e.g., static, pan, dolly, handheld, crane, drone)"),
+    lighting: z.string().describe("lighting description (e.g., harsh, soft, dramatic, natural, colored gels)"),
+    mood: z.string().describe("overall emotional tone of the scene combining music and narrative"),
+    audioSync: z.string().describe("how visuals sync with audio (e.g., Lip Sync, Mood Sync, Beat Sync)"),
 
-  // Cinematic Fields (from CompositionalAgent)
-  cameraMovement: z.string().describe("camera movement description (e.g., static, pan, dolly, handheld, crane, drone)"),
-  lighting: z.string().describe("lighting description (e.g., harsh, soft, dramatic, natural, colored gels)"),
-  mood: z.string().describe("overall emotional tone of the scene combining music and narrative"),
-  audioSync: z.string().describe("how visuals sync with audio (e.g., Lip Sync, Mood Sync, Beat Sync)"),
+    // Continuity Fields
+    continuityNotes: z.array(z.string()).describe("notes for maintaining continuity across scenes"),
+    characters: z.array(z.string()).describe("list of character IDs present in the scene").default([]),
+    locationId: z.string().describe("ID of the location where scene takes place"),
 
-  // Continuity Fields
-  continuityNotes: z.array(z.string()).describe("notes for maintaining continuity across scenes"),
-  charactersPresent: z.array(z.string()).describe("list of character IDs present in the scene"),
-  locationId: z.string().describe("ID of the location where scene takes place"),
-
-  // Generation Fields
-  enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation with continuity details"),
-  generatedVideoUrl: z.string().optional().describe("GCS URL of the generated video"),
-  lastFrameUrl: z.string().optional().describe("GCS URL of the last frame extracted from video"),
-});
+    // Generation Fields
+    enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation with continuity details"),
+    generatedVideoUrl: z.string().optional().describe("GCS URL of the generated video"),
+    lastFrameUrl: z.string().optional().describe("GCS URL of the last frame extracted from video"),
+  }));
 export type Scene = z.infer<typeof SceneSchema>;
 
 // ============================================================================
 // METADATA SCHEMAS
 // ============================================================================
 
-export const KeyMomentSchema = z.object({
-  timeStart: z.string().describe("start time in MM:SS format"),
-  timeEnd: z.string().describe("end time in MM:SS format"),
-  description: z.string().describe("what happens in this key moment"),
-  importance: z.enum([ "critical", "high", "medium" ]).describe("importance level of this moment"),
-  visualPriority: z.string().describe("specific visual direction for this moment"),
-  musicalSignificance: z.string().optional().describe("why this moment is musically significant"),
-});
-export type KeyMoment = z.infer<typeof KeyMomentSchema>;
-
 export const VideoMetadataSchema = z.object({
   title: z.string().describe("title of the video"),
-  duration: z.string().describe("total duration in MM:SS format"),
+  duration: z.number().describe("total duration in seconds"),
   totalScenes: z.number().describe("total number of scenes"),
   style: z.string().describe("inferred cinematic style (e.g., 'High-energy progressive metal music video')"),
   mood: z.string().describe("overall emotional arc across the entire video"),
   colorPalette: z.array(z.string()).describe("list of dominant colors in the palette"),
   tags: z.array(z.string()).describe("list of descriptive tags"),
-  keyMoments: z.array(KeyMomentSchema).describe("list of key moments in the video"),
 });
 export type VideoMetadata = z.infer<typeof VideoMetadataSchema>;
 
@@ -144,8 +149,8 @@ export type Storyboard = z.infer<typeof StoryboardSchema>;
 
 export const ContinuityContextSchema = z.object({
   previousScene: SceneSchema.optional(),
-  characterStates: z.map(z.string(), CharacterStateSchema).describe("map of character ID to current state"),
-  locationStates: z.map(z.string(), LocationStateSchema).describe("map of location ID to current state"),
+  characters: z.map(z.string(), CharacterStateSchema).describe("map of character ID to current state"),
+  locations: z.map(z.string(), LocationStateSchema).describe("map of location ID to current state"),
 });
 export type ContinuityContext = z.infer<typeof ContinuityContextSchema>;
 
@@ -166,30 +171,6 @@ export const GraphStateSchema = z.object({
   errors: z.array(z.string()).describe("list of errors encountered during workflow"),
 });
 export type GraphState = z.infer<typeof GraphStateSchema>;
-
-// ============================================================================
-// AUDIO ANALYSIS SCHEMAS (Internal to AudioProcessingAgent)
-// ============================================================================
-
-export const AudioSegmentSchema = z.object({
-  start_time: z.number().describe("Start time in seconds"),
-  end_time: z.number().describe("End time in seconds"),
-  type: z.enum([ "lyrical", "instrumental", "transition", "breakdown", "solo", "climax" ]),
-  lyrics: z.string().describe("Transcribed lyrics if lyrical, empty otherwise"),
-  musicalDescription: z.string().describe("Detailed description of the sound, instruments, tempo, mood"),
-  intensity: z.enum([ "low", "medium", "high", "extreme" ]).describe("Energy level of this segment"),
-  mood: z.string().describe("Emotional tone (e.g., aggressive, melancholic, triumphant, mysterious"),
-  tempo: z.enum([ "slow", "moderate", "fast", "very_fast" ]).describe("Pace of the music"),
-  musicalChange: z.string().describe("Notable changes: key signature, tempo shift, instrumentation changes, dynamic shifts"),
-  transitionType: z.enum([ "smooth", "sudden", "buildup", "breakdown", "none" ]).describe("How this segment transitions to the next"),
-});
-export type AudioSegment = z.infer<typeof AudioSegmentSchema>;
-
-export const AudioAnalysisSchema = z.object({
-  totalDuration: z.number().describe("Total duration of the track in seconds"),
-  segments: z.array(AudioSegmentSchema).describe("list of analyzed musical segments"),
-});
-export type AudioAnalysis = z.infer<typeof AudioAnalysisSchema>;
 
 // ============================================================================
 // UTILITY TYPES
