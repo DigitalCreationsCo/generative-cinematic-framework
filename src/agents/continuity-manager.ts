@@ -5,8 +5,8 @@ import {
     CastList,
 } from "../types";
 import { GCPStorageManager } from "../storage-manager";
-import { GoogleGenAI } from "@google/genai";
-import { buildImageGenerationParams, buildllmParams } from "../llm-params";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { buildllmParams } from "../llm-params";
 import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
 
@@ -38,7 +38,7 @@ export class ContinuityManagerAgent {
         characters: Character[],
         context: ContinuityContext,
         castList: CastList
-    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string }> {
+    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string; characterReferenceUrls?: string[] }> {
         let startFrameUrl = context.previousScene?.lastFrameUrl;
 
         // Check if any character in the scene requires a composite frame
@@ -46,21 +46,22 @@ export class ContinuityManagerAgent {
             scene.characters.includes(char.id)
         );
 
+        let characterReferenceUrls;
         if (charactersInScene.length > 0 && startFrameUrl) {
             console.log(`   [ContinuityManager] Character(s) detected in scene ${scene.id}. Generating composite frame...`);
-            const allReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
-            if (allReferenceUrls.length > 0) {
-                startFrameUrl = await this.frameComposer.generateCompositeReferenceFrame(
-                    startFrameUrl,
-                    allReferenceUrls,
-                    scene.id
-                );
-            }
+            characterReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
+            // if (characterReferenceUrls.length > 0) {
+            //     startFrameUrl = await this.frameComposer.generateCompositeReferenceFrame(
+            //         startFrameUrl,
+            //         characterReferenceUrls,
+            //         scene.id
+            //     );
+            // }
         }
 
         const enhancedPrompt = await this.enhanceScenePrompt(scene, characters, context);
 
-        return { enhancedPrompt, startFrameUrl };
+        return { enhancedPrompt, startFrameUrl, characterReferenceUrls };
     }
 
 
@@ -79,27 +80,50 @@ export class ContinuityManagerAgent {
             try {
                 const outputMimeType = "image/png";
 
-                const imageGenParams = buildImageGenerationParams({
-                    prompt: imagePrompt,
+                // const imageGenParams = buildImageGenerationParams({
+                //     prompt: imagePrompt,
+                //     config: {
+                //         outputMimeType,
+                //         numberOfImages: 1,
+                //         guidanceScale: 15,
+                //         seed: Math.floor(Math.random() * 1000000),
+                //         addWatermark: false,
+                //     },
+                // });
+
+                // const response = await this.imageModel.models.generateImages(imageGenParams);
+                // if (!response.generatedImages?.[0]?.image?.imageBytes) {
+                //     throw new Error("No image generated");
+                // }
+                // const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, "base64");
+                
+                const result = await this.imageModel.models.generateContent({
+                    model: "gemini-3-pro-image-preview",
+                    contents: [ imagePrompt ],
                     config: {
-                        outputMimeType,
-                        numberOfImages: 1,
-                        guidanceScale: 15,
+                        candidateCount: 1,
+                        responseModalities: [ Modality.IMAGE ],
                         seed: Math.floor(Math.random() * 1000000),
-                        addWatermark: false,
-                    },
+                        imageConfig: {
+                            outputMimeType: outputMimeType
+                        }
+                    }
                 });
-
-                const response = await this.imageModel.models.generateImages(imageGenParams);
-                if (!response.generatedImages?.[0]?.image?.imageBytes) {
-                    throw new Error("No image generated");
+        
+                if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
+                    throw new Error("Image generation failed to return any images.");
                 }
-                const buffer = Buffer.from(response.generatedImages[0].image.imageBytes, "base64");
+        
+                const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+                if (!generatedImageData) {
+                    throw new Error("Generated image is missing inline data.");
+                }
 
-                // Upload to GCS
+                const imageBuffer = Buffer.from(generatedImageData, "base64");
+
                 const imagePath = this.storageManager.getGcsObjectPath("character_image", { characterId: character.id });
                 const imageUrl = await this.storageManager.uploadBuffer(
-                    buffer,
+                    imageBuffer,
                     imagePath,
                     outputMimeType,
                 );

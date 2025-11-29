@@ -2,7 +2,6 @@
 // OPTIMIZED COMPOSITIONAL AGENT
 // ============================================================================
 
-import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import {
   Scene,
@@ -16,21 +15,23 @@ import {
 import { cleanJsonOutput } from "../utils";
 import { GCPStorageManager } from "../storage-manager";
 import { buildStoryboardEnrichmentInstructions } from "../prompts/storyboard-composition-instruction";
+import { retryLlmCall, RetryConfig } from "../lib/llm-retry";
+import { LlmWrapper } from "../llm";
 
 export class CompositionalAgent {
-  private llm: GoogleGenAI;
+  private llm: LlmWrapper;
   private storageManager: GCPStorageManager;
 
-  constructor(llm: GoogleGenAI, storageManager: GCPStorageManager) {
+  constructor(llm: LlmWrapper, storageManager: GCPStorageManager) {
     this.llm = llm;
     this.storageManager = storageManager;
   }
 
-  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string, { MAX_RETRIES = 3, RETRY_WAIT_TIME = 10000 } = {}): Promise<Storyboard> {
+  async enhanceStoryboard(storyboard: Storyboard, creativePrompt: string, retryConfig?: RetryConfig): Promise<Storyboard> {
     console.log("   ... Enriching storyboard with a two-pass approach...");
 
     // First pass: Generate metadata, characters, and locations
-    const initialContext = await this._generateInitialContext(creativePrompt, storyboard.scenes, { MAX_RETRIES, RETRY_WAIT_TIME });
+    const initialContext = await this._generateInitialContext(creativePrompt, storyboard.scenes, retryConfig);
     console.log("Initial Context:", JSON.stringify(initialContext, null, 2));
 
     const BATCH_SIZE = 10;
@@ -65,48 +66,26 @@ export class CompositionalAgent {
       }
       context += `SCENES TO ENRICH (Batch ${batchNum}):\n${JSON.stringify(chunkScenes, null, 2)}`;
 
-      let retries = 0;
-      let success = false;
-      let batchResult: { scenes: Scene[]; } | null = null;
-
-      while (!success && retries < MAX_RETRIES) {
-        try {
-          const response = await this.llm.models.generateContent({
-            model: "gemini-2.5-pro",
-            contents: [
-              { role: 'user', parts: [ { text: systemPrompt } ] },
-              { role: 'user', parts: [ { text: context } ] }
-            ],
-            config: {
-              responseJsonSchema: zodToJSONSchema(ScenesOnlySchema),
-              responseMimeType: "application/json",
-            }
-          });
-          const content = response.text;
-          if (!content) throw new Error("No content generated from LLM");
-
-          const cleanedContent = cleanJsonOutput(content);
-          batchResult = JSON.parse(cleanedContent);
-          success = true;
-          await new Promise(resolve => setTimeout(resolve, 5000));
-
-        } catch (error: any) {
-          if (error.status === 429 || (error.message && error.message.includes("429"))) {
-            retries++;
-            const waitTime = Math.pow(2, retries) * RETRY_WAIT_TIME;
-            console.warn(`   ⚠️ Rate limit hit (429) on batch ${batchNum}. Retrying in ${waitTime / 1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-          } else {
-            console.error(`   ❌ Error processing batch ${batchNum}:`, error);
-            throw error; // Rethrow for non-retriable errors
+      const llmCall = async () => {
+        const response = await this.llm.generateContent({
+          model: "gemini-3-pro-preview",
+          contents: [
+            { role: 'user', parts: [ { text: systemPrompt } ] },
+            { role: 'user', parts: [ { text: context } ] }
+          ],
+          config: {
+            responseJsonSchema: zodToJSONSchema(ScenesOnlySchema),
+            responseMimeType: "application/json",
           }
-        }
-      }
+        });
+        const content = response.text;
+        if (!content) throw new Error("No content generated from LLM");
 
-      if (!success || !batchResult) {
-        throw new Error(`Failed to process batch ${batchNum} after ${MAX_RETRIES} retries.`);
-      }
+        const cleanedContent = cleanJsonOutput(content);
+        return JSON.parse(cleanedContent);
+      };
 
+      const batchResult = await retryLlmCall(llmCall, undefined, retryConfig);
       enrichedScenes.push(...batchResult.scenes);
     }
 
@@ -135,7 +114,7 @@ export class CompositionalAgent {
     return finalStoryboard;
   }
 
-  private async _generateInitialContext(creativePrompt: string, scenes: Scene[], { MAX_RETRIES = 3, RETRY_WAIT_TIME = 10000 }): Promise<Storyboard> {
+  private async _generateInitialContext(creativePrompt: string, scenes: Scene[], retryConfig?: RetryConfig): Promise<Storyboard> {
     console.log("   ... Generating initial context (metadata, characters, locations)...");
 
     const InitialContextSchema = z.object({
@@ -163,48 +142,35 @@ export class CompositionalAgent {
       ${JSON.stringify(sceneSnippet, null, 2)}
     `;
 
-    let retries = 0;
-    while (retries < MAX_RETRIES) {
-      try {
-        const response = await this.llm.models.generateContent({
-          model: "gemini-2.5-pro",
-          contents: [
-            { role: 'user', parts: [ { text: systemPrompt } ] },
-            { role: 'user', parts: [ { text: context } ] }
-          ],
-          config: {
-            responseJsonSchema: zodToJSONSchema(InitialContextSchema),
-            responseMimeType: "application/json",
-          }
-        });
-        const content = response.text;
-        if (!content) throw new Error("No content generated from LLM for initial context");
-
-        const cleanedContent = cleanJsonOutput(content);
-        const parsedContext = JSON.parse(cleanedContent);
-
-        if (!parsedContext.metadata) {
-          throw new Error("Failed to generate metadata in initial context");
+    const llmCall = async () => {
+      const response = await this.llm.generateContent({
+        model: "gemini-3-pro-preview",
+        contents: [
+          { role: 'user', parts: [ { text: systemPrompt } ] },
+          { role: 'user', parts: [ { text: context } ] }
+        ],
+        config: {
+          responseJsonSchema: zodToJSONSchema(InitialContextSchema),
+          responseMimeType: "application/json",
         }
+      });
+      const content = response.text;
+      if (!content) throw new Error("No content generated from LLM for initial context");
 
-        return {
-          ...parsedContext,
-          scenes: [] // Scenes will be populated in the second pass
-        };
+      const cleanedContent = cleanJsonOutput(content);
+      const parsedContext = JSON.parse(cleanedContent);
 
-      } catch (error: any) {
-        if (error.status === 429 || (error.message && error.message.includes("429"))) {
-          retries++;
-          const waitTime = Math.pow(2, retries) * RETRY_WAIT_TIME;
-          console.warn(`   ⚠️ Rate limit hit (429) on initial context generation. Retrying in ${waitTime / 1000}s... (Attempt ${retries}/${MAX_RETRIES})`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        } else {
-          console.error(`   ❌ Error generating initial context:`, error);
-          throw error;
-        }
+      if (!parsedContext.metadata) {
+        throw new Error("Failed to generate metadata in initial context");
       }
-    }
-    throw new Error(`Failed to generate initial context after ${MAX_RETRIES} retries.`);
+
+      return {
+        ...parsedContext,
+        scenes: [] // Scenes will be populated in the second pass
+      };
+    };
+
+    return retryLlmCall(llmCall, undefined, retryConfig);
   }
 
   private validateTimingPreservation(originalScenes: Scene[], enrichedScenes: Scene[]): void {

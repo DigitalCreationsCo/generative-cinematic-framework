@@ -3,7 +3,7 @@
 // Google Vertex AI + LangGraph + GCP Storage
 // ============================================================================
 
-const LOCAL_AUDIO_PATH = "audio/Blind_Melon_-_Make_a_Difference.mp3";
+const LOCAL_AUDIO_PATH = "audio/Between_the_Buried_and_Me_-_Obfuscation.mp3";
 
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegBin from "@ffmpeg-installer/ffmpeg";
@@ -27,6 +27,7 @@ import { ContinuityManagerAgent } from "./agents/continuity-manager";
 import { GCPStorageManager } from "./storage-manager";
 import { FrameCompositionAgent } from "./agents/frame-composition-agent";
 import { AudioProcessingAgent } from "./agents/audio-processing-agent";
+import { LlmWrapper, GoogleProvider } from "./llm";
 
 import * as dotenv from "dotenv";
 dotenv.config();
@@ -59,8 +60,9 @@ class CinematicVideoWorkflow {
     this.videoId = videoId;
     this.storageManager = new GCPStorageManager(projectId, videoId, bucketName);
 
+    const llmWrapper = new LlmWrapper(new GoogleProvider(llm, llm));
     this.audioProcessingAgent = new AudioProcessingAgent(this.storageManager, llm);
-    this.compositionalAgent = new CompositionalAgent(llm, this.storageManager);
+    this.compositionalAgent = new CompositionalAgent(llmWrapper, this.storageManager);
     this.frameCompositionAgent = new FrameCompositionAgent(llm, this.storageManager);
     this.continuityAgent = new ContinuityManagerAgent(
       llm,
@@ -68,7 +70,7 @@ class CinematicVideoWorkflow {
       this.storageManager,
       this.frameCompositionAgent
     );
-    this.sceneAgent = new SceneGeneratorAgent(llm, llm, this.storageManager);
+    this.sceneAgent = new SceneGeneratorAgent(llmWrapper, this.storageManager);
 
     this.graph = this.buildGraph();
   }
@@ -89,10 +91,18 @@ class CinematicVideoWorkflow {
       },
     });
 
+    workflow.addConditionalEdges(START, (state: GraphState) => {
+      if (state.storyboard && state.characters && state.characters.length > 0) {
+        console.log("   Resuming workflow from process_scene...");
+        return "process_scene";
+      }
+      return "create_timed_scenes_from_audio";
+    });
+
     workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
       console.log("\n📋 PHASE 1a: Creating Timed Scenes from Audio...");
       const { segments, audioGcsUri, totalDuration } = await this.audioProcessingAgent.processAudioToStoryboard(
-        state.initialPrompt, 
+        state.initialPrompt,
       );
 
       return {
@@ -100,30 +110,30 @@ class CinematicVideoWorkflow {
         storyboard: {
           metadata: { duration: totalDuration },
           scenes: segments,
-        }, 
+        },
         audioGcsUri,
       };
     });
 
     workflow.addNode("enhance_storyboard_with_prompt", async (state: GraphState) => {
-        if (!state.storyboard || !state.storyboard.scenes) throw new Error("No timed scenes available");
-        if (!state.creativePrompt) throw new Error("No creative prompt available");
-        console.log("\n📋 PHASE 1b: Enhancing Storyboard with Prompt...");
-        const storyboard = await this.compositionalAgent.enhanceStoryboard(
-            state.storyboard,
-            state.creativePrompt
-        );
+      if (!state.storyboard || !state.storyboard.scenes) throw new Error("No timed scenes available");
+      if (!state.creativePrompt) throw new Error("No creative prompt available");
+      console.log("\n📋 PHASE 1b: Enhancing Storyboard with Prompt...");
+      const storyboard = await this.compositionalAgent.enhanceStoryboard(
+        state.storyboard,
+        state.creativePrompt
+      );
 
-        return {
-            ...state,
-            storyboard,
-            currentSceneIndex: 0,
-            generatedScenes: [],
-            continuityContext: {
-                characters: new Map(),
-                locations: new Map(),
-            },
-        };
+      return {
+        ...state,
+        storyboard,
+        currentSceneIndex: 0,
+        generatedScenes: [],
+        continuityContext: {
+          characters: new Map(),
+          locations: new Map(),
+        },
+      };
     });
 
     workflow.addNode("generate_character_refs", async (state: GraphState) => {
@@ -150,7 +160,48 @@ class CinematicVideoWorkflow {
         `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboard.scenes.length}`
       );
 
-      const { enhancedPrompt, startFrameUrl } = await this.continuityAgent.prepareSceneInputs(
+      const sceneVideoPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: scene.id });
+      
+      // Attempt to find last frame to maintain continuity for next scene
+      let lastFrameUrl: string | undefined;
+      const lastFramePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: scene.id });
+      if (await this.storageManager.fileExists(lastFramePath)) {
+        lastFrameUrl = this.storageManager.getGcsUrl(lastFramePath);
+        console.log(`   ... Found last frame for continuity: ${lastFrameUrl}`);
+      }
+
+
+      // Check if scene video exists to resume
+      if (await this.storageManager.fileExists(sceneVideoPath)) {
+        console.log(`   ... Scene video already exists at ${sceneVideoPath}, skipping.`);
+        
+        const videoGcsUrl = this.storageManager.getGcsUrl(sceneVideoPath);
+        
+        // Reconstruct generated scene object
+        const generatedScene: Scene = {
+            ...scene,
+            generatedVideoUrl: videoGcsUrl,
+            lastFrameUrl
+        };
+
+        // Update continuity context so next scene has correct previous scene info
+        const updatedContext = this.continuityAgent.updateContinuityContext(
+            generatedScene,
+            state.continuityContext,
+            state.characters
+        );
+
+        return {
+          ...state,
+          generatedScenes: [ ...state.generatedScenes, generatedScene ],
+          currentSceneIndex: state.currentSceneIndex + 1,
+          continuityContext: updatedContext,
+        };
+      }
+
+      // REFACTOR prepareSceneInputs TO RETURN CHARACTERREFERNCEURLS WITHOUT GENERATING COMPOSITE FRAME
+      // OMIT GENERATING CHARACTER CONTINUITY FRAMES FOR NOW AS IT MAY BE REDUCING SCENE QUALITY
+      const { enhancedPrompt, characterReferenceUrls } = await this.continuityAgent.prepareSceneInputs(
         scene,
         state.characters,
         state.continuityContext,
@@ -160,7 +211,8 @@ class CinematicVideoWorkflow {
       const generatedScene = await this.sceneAgent.generateScene(
         scene,
         enhancedPrompt,
-        startFrameUrl
+        lastFrameUrl,
+        characterReferenceUrls
       );
 
       console.log(`   ... waiting ${this.SCENE_GEN_TIMEOUT_MS / 1000}s for rate limit reset`);
@@ -182,7 +234,7 @@ class CinematicVideoWorkflow {
 
     workflow.addNode("render_video", async (state: GraphState) => {
       console.log("\n🎥 PHASE 4: Rendering Final Video...");
-      
+
       const videoPaths = state.generatedScenes
         .map(s => s.generatedVideoUrl)
         .filter((url): url is string => !!url);
@@ -206,7 +258,7 @@ class CinematicVideoWorkflow {
         console.error("   Failed to render video:", error);
         return {
           ...state,
-          errors: [...state.errors, `Video rendering failed: ${error}`]
+          errors: [ ...state.errors, `Video rendering failed: ${error}` ]
         };
       }
     });
@@ -231,7 +283,6 @@ class CinematicVideoWorkflow {
       return state;
     });
 
-    workflow.addEdge(START, "create_timed_scenes_from_audio" as any);
     workflow.addEdge("create_timed_scenes_from_audio" as any, "enhance_storyboard_with_prompt" as any);
     workflow.addEdge("enhance_storyboard_with_prompt" as any, "generate_character_refs" as any);
     workflow.addEdge("generate_character_refs" as any, "process_scene" as any);
@@ -250,26 +301,67 @@ class CinematicVideoWorkflow {
     return workflow;
   }
 
-  async execute(localAudioPath: string, creativePrompt: string): Promise<GraphState> {
-    const compiledGraph = this.graph.compile();
-
-    const initialState: GraphState = {
-      initialPrompt: localAudioPath,
-      creativePrompt,
-      currentSceneIndex: 0,
-      generatedScenes: [],
-      characters: [],
-      continuityContext: {
-        characters: new Map(),
-        locations: new Map(),
-      },
-      errors: [],
-    };
-
-    console.log("🚀 Starting Cinematic Video Generation Workflow");
+  async execute(localAudioPath?: string, creativePrompt?: string): Promise<GraphState> {
+    console.log(`🚀 Executing Cinematic Video Generation Workflow for videoId: ${this.videoId}`);
     console.log("=".repeat(60));
 
-    const result = await compiledGraph.invoke(initialState);
+    let initialState: GraphState;
+
+    try {
+        console.log("   Checking for existing storyboard...");
+        const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+        const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
+        console.log("   Found existing storyboard. Resuming workflow.");
+
+        const characterPromises = storyboard.characters.map(async (char) => {
+            const charImgPath = this.storageManager.getGcsObjectPath("character_image", { characterId: char.id });
+            if (await this.storageManager.fileExists(charImgPath)) {
+                console.log(`   ... Character image for ${char.name} already exists, skipping.`);
+                const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
+                return { ...char, referenceImageUrls: [ fullGcsUrl ] };
+            }
+            return this.continuityAgent.generateCharacterReferences([ char ]).then(chars => chars[ 0 ]);
+        });
+
+        const characters = await Promise.all(characterPromises);
+
+        initialState = {
+            initialPrompt: localAudioPath || '',
+            creativePrompt: creativePrompt || '',
+            storyboard,
+            characters,
+            currentSceneIndex: 0,
+            generatedScenes: [],
+            continuityContext: {
+                characters: new Map(),
+                locations: new Map(),
+            },
+            errors: [],
+        };
+    } catch (error) {
+        console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
+        if (!localAudioPath || !creativePrompt) {
+            throw new Error("Cannot start new workflow without localAudioPath and creativePrompt.");
+        }
+
+        initialState = {
+            initialPrompt: localAudioPath,
+            creativePrompt,
+            currentSceneIndex: 0,
+            generatedScenes: [],
+            characters: [],
+            continuityContext: {
+                characters: new Map(),
+                locations: new Map(),
+            },
+            errors: [],
+        };
+    }
+
+    const compiledGraph = this.graph.compile();
+    const result = await compiledGraph.invoke(initialState, {
+        recursionLimit: 100,
+    });
     return result as GraphState;
   }
 }
@@ -281,8 +373,9 @@ class CinematicVideoWorkflow {
 async function main() {
   const projectId = process.env.GCP_PROJECT_ID || "your-project-id";
   const bucketName = process.env.GCP_BUCKET_NAME || "your-bucket-name";
+  const videoIdFromArgs = process.argv[ 2 ];
 
-  const videoId = `video_${Date.now()}`
+  const videoId = videoIdFromArgs || `video_${Date.now()}`;
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 
   const creativePrompt = `
@@ -358,7 +451,7 @@ In the desert, She comes to a parked horse
 Mounts and rides into the dunes.
 END just as the song finishes.
 `;
-  
+
   const testPrompt = `
 Create a short proof of concept video with exactly 5 scenes.
 Theme: A journey through a futuristic city.

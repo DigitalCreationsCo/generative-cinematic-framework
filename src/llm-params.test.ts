@@ -45,7 +45,7 @@ describe('LLM Parameter Builders', () => {
                 prompt: 'a dog running',
             };
             const result = buildVideoGenerationParams(params);
-            expect(result.model).toBe('veo-3.1-generate-001');
+            expect(result.model).toBe('veo-3.1-generate-preview');
             expect(result.prompt).toBe('a dog running');
         });
     });

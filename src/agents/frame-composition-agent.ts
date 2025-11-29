@@ -1,6 +1,5 @@
 import { GoogleGenAI, Modality, Part } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
-import { buildImageGenerationParams } from "../llm-params";
 
 export class FrameCompositionAgent {
     private imageModel: GoogleGenAI;

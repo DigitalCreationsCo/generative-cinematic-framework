@@ -23,6 +23,10 @@ export const buildImageGenerationParams = (params: { prompt: GenerateImagesParam
     },
 });
 export const buildVideoGenerationParams = (params: { prompt: GenerateVideosParameters[ 'prompt' ]; } & Partial<GenerateVideosParameters>): GenerateVideosParameters => ({
-    model: "veo-3.1-generate-001",
+    model: "veo-3.1-generate-preview",
     ...params,
+    config: {
+        enhancePrompt: false,
+        ...params.config
+    },
 });

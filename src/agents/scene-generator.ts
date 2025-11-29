@@ -1,26 +1,27 @@
-import { GoogleGenAI, PersonGeneration } from "@google/genai";
+import { PersonGeneration, VideoGenerationReferenceType } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Scene } from "../types";
 import ffmpeg from "fluent-ffmpeg";
-import { buildllmParams, buildVideoGenerationParams } from "../llm-params";
+import { buildVideoGenerationParams, buildllmParams } from "../llm-params";
 import fs from "fs";
 import { formatTime } from "../utils";
+import { retryLlmCall } from "../lib/llm-retry";
+import { LlmWrapper } from "../llm";
 
 export class SceneGeneratorAgent {
-    private llm: GoogleGenAI;
-    private videoModel: GoogleGenAI;
+    private llm: LlmWrapper;
     private storageManager: GCPStorageManager;
 
-    constructor(llm: GoogleGenAI, videoModel: GoogleGenAI, storageManager: GCPStorageManager) {
+    constructor(llm: LlmWrapper, storageManager: GCPStorageManager) {
         this.llm = llm;
-        this.videoModel = videoModel;
         this.storageManager = storageManager;
     }
 
     async generateScene(
         scene: Scene,
         enhancedPrompt: string,
-        previousFrameUrl?: string
+        previousFrameUrl?: string,
+        characerterReferenceUrls?: string[],
     ): Promise<Scene> {
         try {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
@@ -30,7 +31,8 @@ export class SceneGeneratorAgent {
                 enhancedPrompt,
                 scene.duration,
                 scene.id,
-                previousFrameUrl
+                previousFrameUrl,
+                characerterReferenceUrls
             );
 
             let lastFrameUrl: string | undefined;
@@ -50,6 +52,26 @@ export class SceneGeneratorAgent {
             console.error(`   ✗ Failed to generate scene ${scene.id}:`, error);
             throw error; // Re-throw to be handled by the workflow
         }
+    }
+
+    private async generateVideo(
+        prompt: string,
+        duration: number,
+        sceneId: number,
+        startFrame?: string,
+        characerterReferenceUrls?: string[],
+    ): Promise<string> {
+        const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, duration, sceneId, startFrame, characerterReferenceUrls);
+
+        const onRetry = async (error: any, attempt: number, currentPrompt: string) => {
+            const errorMessage = JSON.stringify(error);
+            if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
+                console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error. Sanitizing prompt...`);
+                return await this.sanitizePrompt(currentPrompt, errorMessage);
+            }
+        };
+
+        return retryLlmCall(llmCall, prompt, { maxRetries: 2, initialDelay: 1000, backoffFactor: 2 }, onRetry);
     }
 
     private async sanitizePrompt(originalPrompt: string, errorMessage: string): Promise<string> {
@@ -81,7 +103,7 @@ export class SceneGeneratorAgent {
             Original Prompt: ${originalPrompt}
             `;
 
-            const response = await this.llm.models.generateContent(buildllmParams({
+            const response = await this.llm.generateContent(buildllmParams({
                 model: 'gemini-3-pro-preview',
                 contents: [
                     { role: 'user', parts: [{ text: prompt }] }
@@ -97,46 +119,12 @@ export class SceneGeneratorAgent {
         }
     }
 
-    private async generateVideo(
-        prompt: string,
-        duration: number,
-        sceneId: number,
-        startFrame?: string
-    ): Promise<string> {
-        let currentPrompt = prompt;
-        let attempt = 0;
-        const maxAttempts = 2;
-
-        while (attempt < maxAttempts) {
-            try {
-                return await this.executeVideoGeneration(currentPrompt, duration, sceneId, startFrame);
-            } catch (error: any) {
-                attempt++;
-                const errorMessage = JSON.stringify(error);
-
-                // Check for safety filter / celebrity error (29310472) or general 400 errors that might be prompt related
-                // The error message usually contains the support code or "violate"
-                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
-                    console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error.`);
-                    if (attempt < maxAttempts) {
-                        currentPrompt = await this.sanitizePrompt(currentPrompt, errorMessage);
-                        continue; // Retry with new prompt
-                    }
-                }
-
-                // If it's not a safety error or we ran out of attempts, throw
-                console.error(`   ✗ Failed to generate video for scene ${sceneId}:`, error);
-                throw error;
-            }
-        }
-        throw new Error("Video generation failed after max attempts.");
-    }
-
     private async executeVideoGeneration(
         prompt: string,
         duration: number,
         sceneId: number,
-        startFrame?: string
+        startFrame?: string,
+        characerterReferenceUrls?: string[],
     ): Promise<string> {
         console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
@@ -155,10 +143,19 @@ export class SceneGeneratorAgent {
             imageParam = { gcsUri: startFrame, mimeType: mimeType || "image/png" };
         }
 
+        const referenceImages = characerterReferenceUrls ? await Promise.all(characerterReferenceUrls.map(async url => ({
+            image: {
+                gcsUri: this.storageManager.getGcsUrl(url),
+                mimeType: await this.storageManager.getObjectMimeType(url) || "image/png",
+            },
+            referenceType: VideoGenerationReferenceType.ASSET
+        }))) : [];
+
         const videoGenParams = buildVideoGenerationParams({
             prompt,
             image: imageParam,
             config: {
+                referenceImages,
                 resolution: '720p',
                 durationSeconds,
                 numberOfVideos: 1,
@@ -168,7 +165,7 @@ export class SceneGeneratorAgent {
             }
         });
 
-        let operation = await this.videoModel.models.generateVideos(videoGenParams);
+        let operation = await this.llm.generateVideos(videoGenParams);
 
         const startTime = Date.now();
         const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -183,7 +180,7 @@ export class SceneGeneratorAgent {
             console.log("   ... waiting for video generation to complete");
             await new Promise(resolve => setTimeout(resolve, 10000));
 
-            operation = await this.videoModel.operations.getVideosOperation({ operation });
+            operation = await this.llm.getVideosOperation({ operation });
         }
 
         if (operation.error) {
