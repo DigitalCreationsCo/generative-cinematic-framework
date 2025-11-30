@@ -212,7 +212,7 @@ Please expand this into a comprehensive cinematic blueprint following the framew
           { role: "user", parts: [ { text: userMessage } ] }
         ],
         config: {
-          temperature: 0.9, 
+          temperature: 0.9,
         }
       })
 
@@ -233,5 +233,90 @@ Please expand this into a comprehensive cinematic blueprint following the framew
       // Fallback: return original prompt if expansion fails
       return userPrompt;
     }
+  }
+
+  /**
+   * Generates a storyboard from creative prompt without audio timing constraints.
+   * Used when no audio file is provided.
+   */
+  async generateStoryboardFromPrompt(creativePrompt: string, retryConfig?: RetryConfig): Promise<Storyboard> {
+    console.log("   ... Generating full storyboard from creative prompt (no audio)...");
+
+    const jsonSchema = zodToJSONSchema(StoryboardSchema);
+
+    const systemPrompt = `You are a master film director and cinematographer. Generate a complete storyboard for a cinematic video based solely on the creative prompt provided.
+
+Since there is no audio timing to follow, you have full creative freedom to determine:
+- Number of scenes (aim for 8-15 scenes for a compelling narrative)
+- Duration of each scene (4, 6, or 8 seconds only - these are the valid durations)
+- Pacing and rhythm of the story
+- Character introductions and development
+- Location transitions
+- Narrative arc and emotional beats
+
+Create a cohesive, visually stunning story with:
+1. Clear character definitions with detailed physical descriptions
+2. Distinct locations with atmospheric details
+3. Scene-by-scene breakdown with:
+   - Precise timing (startTime, endTime, duration)
+   - Shot types and camera movements
+   - Lighting and mood
+   - Continuity notes linking scenes
+   - Character interactions and positions
+
+Ensure all scene durations are exactly 4, 6, or 8 seconds.
+Ensure scenes flow chronologically with no timing gaps or overlaps.
+
+Return a complete Storyboard object matching the provided schema.`;
+
+    const userMessage = `CREATIVE PROMPT:
+${creativePrompt}
+
+Generate a complete cinematic storyboard for this concept.`;
+
+    const llmCall = async () => {
+      const response = await this.llm.generateContent({
+        model: "gemini-3-pro-preview",
+        contents: [
+          { role: 'user', parts: [ { text: systemPrompt } ] },
+          { role: 'user', parts: [ { text: userMessage } ] }
+        ],
+        config: {
+          responseJsonSchema: jsonSchema,
+          responseMimeType: "application/json",
+          temperature: 0.8,
+        }
+      });
+
+      const content = response.text;
+      if (!content) throw new Error("No content generated from LLM");
+
+      const cleanedContent = cleanJsonOutput(content);
+      const storyboard: Storyboard = JSON.parse(cleanedContent);
+
+      // Validate that all scenes have valid durations
+      for (const scene of storyboard.scenes) {
+        if (scene.duration !== 4 && scene.duration !== 6 && scene.duration !== 8) {
+          throw new Error(`Invalid scene duration: ${scene.duration}s. Must be 4, 6, or 8 seconds.`);
+        }
+      }
+
+      return storyboard;
+    };
+
+    const storyboard = await retryLlmCall(llmCall, undefined, retryConfig);
+
+    // Save storyboard
+    const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+    await this.storageManager.uploadJSON(storyboard, storyboardPath);
+
+    console.log(`✓ Storyboard generated successfully:`);
+    console.log(`  - Title: ${storyboard.metadata.title || "Untitled"}`);
+    console.log(`  - Duration: ${storyboard.metadata.duration}s`);
+    console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
+    console.log(`  - Characters: ${storyboard.characters.length}`);
+    console.log(`  - Locations: ${storyboard.locations.length}`);
+
+    return storyboard;
   }
 }

@@ -21,10 +21,20 @@ export class AudioProcessingAgent {
 
     /**
      * Processes an audio file to generate a detailed musical analysis and timed scene template.
-     * @param localAudioPath The local path to the audio file (mp3, wav).
+     * @param localAudioPath The local path to the audio file (mp3, wav). Optional - if not provided, returns empty analysis.
+     * @param creativePrompt The creative prompt for the video.
      * @returns A promise that resolves to an array of timed scenes and the audio GCS URI.
      */
-    async processAudioToScenes(localAudioPath: string, creativePrompt: string): Promise<AudioAnalysis> {
+    async processAudioToScenes(localAudioPath: string | undefined, creativePrompt: string): Promise<AudioAnalysis> {
+        if (!localAudioPath) {
+            console.log(`🎤 No audio file provided, skipping audio processing`);
+            return {
+                totalDuration: 0,
+                segments: [],
+                audioGcsUri: '',
+            };
+        }
+
         console.log(`🎤 Starting audio processing for: ${localAudioPath}`);
 
         const durationSeconds = await this.getAudioDuration(localAudioPath);

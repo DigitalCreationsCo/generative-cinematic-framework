@@ -275,7 +275,7 @@ export class SceneGeneratorAgent {
 
     async stitchScenes(videoPaths: string[], audioPath: string): Promise<string> {
         console.log(`\n🎬 Stitching ${videoPaths.length} scenes...`);
-        
+
         const fs = require('fs');
         const path = require('path');
         const tmpDir = '/tmp';
@@ -322,7 +322,7 @@ export class SceneGeneratorAgent {
             const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
             console.log(`   ... Uploading stitched video to ${objectPath}`);
             const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
-            
+
             console.log(`   ✓ Rendered video uploaded: ${this.storageManager.getPublicUrl(gcsUri)}`);
             return gcsUri;
 
@@ -334,6 +334,57 @@ export class SceneGeneratorAgent {
             if (fs.existsSync(intermediateVideoPath)) fs.unlinkSync(intermediateVideoPath);
             if (fs.existsSync(finalVideoPath)) fs.unlinkSync(finalVideoPath);
             if (fs.existsSync(localAudioPath)) fs.unlinkSync(localAudioPath);
+            downloadedFiles.forEach(f => {
+                if (fs.existsSync(f)) fs.unlinkSync(f);
+            });
+        }
+    }
+
+    async stitchScenesWithoutAudio(videoPaths: string[]): Promise<string> {
+        console.log(`\n🎬 Stitching ${videoPaths.length} scenes (no audio)...`);
+
+        const fs = require('fs');
+        const path = require('path');
+        const tmpDir = '/tmp';
+        const fileListPath = path.join(tmpDir, 'concat_list.txt');
+        const finalVideoPath = path.join(tmpDir, 'final_movie.mp4');
+        const downloadedFiles: string[] = [];
+
+        try {
+            console.log("   ... Downloading video clips...");
+            await Promise.all(videoPaths.map(async (pathUrl, i) => {
+                const localPath = path.join(tmpDir, `clip_${i}.mp4`);
+                await this.storageManager.downloadFile(pathUrl, localPath);
+                downloadedFiles[i] = localPath; // Ensure order is preserved
+            }));
+
+            const fileListContent = downloadedFiles.map(f => `file '${f}'`).join('\n');
+            fs.writeFileSync(fileListPath, fileListContent);
+
+            console.log("   ... Stitching videos with ffmpeg (no audio)");
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(fileListPath)
+                    .inputOptions(['-f', 'concat', '-safe', '0'])
+                    .outputOptions('-c copy')
+                    .save(finalVideoPath)
+                    .on('end', () => resolve())
+                    .on('error', (err: Error) => reject(err));
+            });
+
+            const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
+            console.log(`   ... Uploading stitched video to ${objectPath}`);
+            const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
+
+            console.log(`   ✓ Rendered video uploaded: ${this.storageManager.getPublicUrl(gcsUri)}`);
+            return gcsUri;
+
+        } catch (error) {
+            console.error("   ✗ Failed to stitch scenes:", error);
+            throw error;
+        } finally {
+            if (fs.existsSync(fileListPath)) fs.unlinkSync(fileListPath);
+            if (fs.existsSync(finalVideoPath)) fs.unlinkSync(finalVideoPath);
             downloadedFiles.forEach(f => {
                 if (fs.existsSync(f)) fs.unlinkSync(f);
             });

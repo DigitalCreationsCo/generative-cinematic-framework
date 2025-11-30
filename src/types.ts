@@ -160,9 +160,10 @@ export type ContinuityContext = z.infer<typeof ContinuityContextSchema>;
 // ============================================================================
 
 export const GraphStateSchema = z.object({
-  initialPrompt: z.string().describe("path to the audio file to process"),
+  initialPrompt: z.string().describe("path to the audio file to process (optional)"),
   creativePrompt: z.string().optional().describe("user's creative prompt with narrative, characters, settings"),
-  audioGcsUri: z.string().optional().describe("GCS URI of uploaded audio file"),
+  audioGcsUri: z.string().optional().describe("GCS URI of uploaded audio file (optional)"),
+  hasAudio: z.boolean().default(false).describe("whether this workflow uses audio"),
   storyboard: StoryboardSchema.optional().describe("complete storyboard with all scenes"),
   currentSceneIndex: z.number().describe("index of the scene currently being processed"),
   generatedScenes: z.array(SceneSchema).describe("list of scenes that have been generated"),

@@ -3,8 +3,6 @@
 // Google Vertex AI + LangGraph + GCP Storage
 // ============================================================================
 
-const LOCAL_AUDIO_PATH = "audio/talk.mp3";
-
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegBin from "@ffmpeg-installer/ffmpeg";
 import ffprobeBin from "@ffprobe-installer/ffprobe";
@@ -81,6 +79,7 @@ class CinematicVideoWorkflow {
         initialPrompt: null,
         creativePrompt: null,
         audioGcsUri: null,
+        hasAudio: null,
         storyboard: null,
         currentSceneIndex: null,
         generatedScenes: null,
@@ -97,7 +96,12 @@ class CinematicVideoWorkflow {
         console.log("   Resuming workflow from process_scene...");
         return "process_scene";
       }
-      return "create_timed_scenes_from_audio";
+      // Check if audio is provided
+      if (state.hasAudio) {
+        return "create_timed_scenes_from_audio";
+      } else {
+        return "expand_creative_prompt";
+      }
     });
 
     workflow.addNode("expand_creative_prompt", async (state: GraphState) => {
@@ -128,6 +132,26 @@ class CinematicVideoWorkflow {
         storyboard: {
           metadata: { duration: totalDuration },
           scenes: segments,
+        },
+      };
+    });
+
+    workflow.addNode("generate_storyboard_from_prompt", async (state: GraphState) => {
+      if (!state.creativePrompt) throw new Error("No creative prompt available");
+      console.log("\n📋 PHASE 1: Generating Storyboard from Creative Prompt (No Audio)...");
+
+      const storyboard = await this.compositionalAgent.generateStoryboardFromPrompt(
+        state.creativePrompt
+      );
+
+      return {
+        ...state,
+        storyboard,
+        currentSceneIndex: 0,
+        generatedScenes: [],
+        continuityContext: {
+          characters: new Map(),
+          locations: new Map(),
         },
       };
     });
@@ -272,12 +296,11 @@ class CinematicVideoWorkflow {
         return state;
       }
 
-      if (!state.audioGcsUri) {
-        throw new Error("No audio GCS URI available to stitch.");
-      }
-
       try {
-        const renderedVideoUrl = await this.sceneAgent.stitchScenes(videoPaths, state.audioGcsUri);
+        // If audio is available, stitch with audio; otherwise, stitch without audio
+        const renderedVideoUrl = state.audioGcsUri
+          ? await this.sceneAgent.stitchScenes(videoPaths, state.audioGcsUri)
+          : await this.sceneAgent.stitchScenesWithoutAudio(videoPaths);
 
         return {
           ...state,
@@ -313,8 +336,15 @@ class CinematicVideoWorkflow {
       return state;
     });
 
+    // Audio-based workflow path
     workflow.addEdge("create_timed_scenes_from_audio" as any, "enhance_storyboard_with_prompt" as any);
     workflow.addEdge("enhance_storyboard_with_prompt" as any, "generate_character_refs" as any);
+
+    // Non-audio workflow path
+    workflow.addEdge("expand_creative_prompt" as any, "generate_storyboard_from_prompt" as any);
+    workflow.addEdge("generate_storyboard_from_prompt" as any, "generate_character_refs" as any);
+
+    // Common path for both workflows
     workflow.addEdge("generate_character_refs" as any, "generate_location_refs" as any);
     workflow.addEdge("generate_location_refs" as any, "process_scene" as any);
 
@@ -332,14 +362,20 @@ class CinematicVideoWorkflow {
     return workflow;
   }
 
-  async execute(localAudioPath: string, creativePrompt: string): Promise<GraphState> {
+  async execute(localAudioPath: string | undefined, creativePrompt: string): Promise<GraphState> {
     console.log(`🚀 Executing Cinematic Video Generation Workflow for videoId: ${this.videoId}`);
     console.log("=".repeat(60));
 
     let initialState: GraphState;
+    let audioGcsUri: string | undefined;
+    const hasAudio = !!localAudioPath;
 
-    console.log("   Checking for existing audio file...");
-    const audioGcsUri = await this.storageManager.uploadAudioFile(localAudioPath);
+    if (hasAudio && localAudioPath) {
+      console.log("   Checking for existing audio file...");
+      audioGcsUri = await this.storageManager.uploadAudioFile(localAudioPath);
+    } else {
+      console.log("   No audio file provided - generating video from creative prompt only.");
+    }
 
     try {
         console.log("   Checking for existing storyboard...");
@@ -373,6 +409,7 @@ class CinematicVideoWorkflow {
         initialState = {
             initialPrompt: localAudioPath || '',
             creativePrompt: creativePrompt || '',
+            hasAudio,
             storyboard,
             characters,
             locations,
@@ -387,13 +424,14 @@ class CinematicVideoWorkflow {
         };
     } catch (error) {
         console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
-        if (!localAudioPath || !creativePrompt) {
-            throw new Error("Cannot start new workflow without localAudioPath and creativePrompt.");
+        if (!creativePrompt) {
+            throw new Error("Cannot start new workflow without creativePrompt.");
         }
 
         initialState = {
-            initialPrompt: localAudioPath,
+            initialPrompt: localAudioPath || '',
             creativePrompt,
+            hasAudio,
             currentSceneIndex: 0,
             generatedScenes: [],
             characters: [],
@@ -423,6 +461,7 @@ async function main() {
   const projectId = process.env.GCP_PROJECT_ID || "your-project-id";
   const bucketName = process.env.GCP_BUCKET_NAME || "your-bucket-name";
   const videoIdFromArgs = process.argv[ 2 ];
+  const audioPathArg = process.argv[ 3 ];
 
   const videoId = videoIdFromArgs || `video_${Date.now()}`;
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
@@ -733,7 +772,15 @@ Style: Cyberpunk, neon lights, rain.
 `;
 
   try {
-    const result = await workflow.execute(LOCAL_AUDIO_PATH, creativePrompt);
+    const audioPath = audioPathArg || undefined;
+
+    if (audioPath) {
+      console.log(`\n🎵 Audio mode: Using audio file at ${audioPath}`);
+    } else {
+      console.log(`\n🎬 No-audio mode: Generating video from creative prompt only`);
+    }
+
+    const result = await workflow.execute(audioPath, creativePrompt);
     console.log("\n" + "=".repeat(60));
     console.log("✅ Workflow completed successfully!");
     console.log(`   Generated ${result.generatedScenes.length} scenes`);
