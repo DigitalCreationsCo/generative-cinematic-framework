@@ -32,7 +32,7 @@ describe('AudioProcessingAgent', () => {
     const localAudioPath = '/path/to/audio.mp3';
     const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
     const mockAnalysis = {
-      segments: [{
+      segments: [ {
         startTime: 0,
         endTime: 120,
         type: 'instrumental',
@@ -43,7 +43,7 @@ describe('AudioProcessingAgent', () => {
         tempo: 'moderate',
         musicalChange: 'none',
         transitionType: 'smooth',
-      }],
+      } ],
       totalDuration: 120,
     };
     const creativePrompt = 'A creative prompt.';
@@ -52,56 +52,55 @@ describe('AudioProcessingAgent', () => {
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
     vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
     vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
-      candidates: [{
+      candidates: [ {
         content: {
-          parts: [{ text: JSON.stringify(mockAnalysis) }],
+          parts: [ { text: JSON.stringify(mockAnalysis) } ],
         },
-      }],
+      } ],
     } as any);
 
     const result = await audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt);
 
     expect(result).toEqual(mockAnalysis);
-    expect(storageManager.uploadFile).toHaveBeenCalledWith(localAudioPath, 'audio/audio.mp3');
+    // expect(storageManager.uploadFile).toHaveBeenCalledWith(localAudioPath, 'audio/audio.mp3'); // Upload removed from agent
     expect(genAI.models.generateContent).toHaveBeenCalled();
   });
 
-  it('should skip upload if file exists', async () => {
-    const localAudioPath = '/path/to/audio.mp3';
-    const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
-    const mockAnalysis = {
-      segments: [],
-      totalDuration: 120,
-    };
-    const creativePrompt = 'A creative prompt.';
-
-    vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
-    vi.spyOn(storageManager, 'fileExists').mockResolvedValue(true);
-    const uploadFileSpy = vi.spyOn(storageManager, 'uploadFile');
-    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
-      candidates: [{
-        content: {
-          parts: [{ text: JSON.stringify(mockAnalysis) }],
-        },
-      }],
-    } as any);
-
-    await audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt);
-
-    expect(uploadFileSpy).not.toHaveBeenCalled();
-  });
+  // it('should skip upload if file exists', async () => { ... }) - Test removed as upload logic is moved out
 
   it('should throw an error if LLM analysis fails', async () => {
+      const localAudioPath = '/path/to/audio.mp3';
+      const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
+      const creativePrompt = 'A creative prompt.';
+
+      vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
+      // vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
+      // vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
+      vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
+        candidates: [],
+      } as any);
+
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
+  });
+
+  it('should throw an error if result is null', async () => {
     const localAudioPath = '/path/to/audio.mp3';
     const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
     const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
-    vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
-    vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
-    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
-      candidates: [],
-    } as any);
+    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue(null as any);
+
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
+  });
+
+  it('should throw an error if candidates are missing', async () => {
+    const localAudioPath = '/path/to/audio.mp3';
+    const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
+    const creativePrompt = 'A creative prompt.';
+
+    vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
+    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({} as any);
 
     await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
   });
@@ -113,8 +112,8 @@ describe('AudioProcessingAgent', () => {
     const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
-    vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
-    vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
+    // vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
+    // vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
     vi.spyOn(genAI.models, 'generateContent').mockRejectedValue(new Error(errorMessage));
 
     await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow(errorMessage);

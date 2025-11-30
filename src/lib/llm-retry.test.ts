@@ -45,4 +45,10 @@ describe('retryLlmCall', () => {
         expect(onRetry).toHaveBeenCalledWith(new Error('failure 1'), 1, 'test-params');
         expect(llmCall).toHaveBeenLastCalledWith('modified-params');
     });
+
+    it('should throw error immediately if maxRetries is 0', async () => {
+        const llmCall = vi.fn().mockResolvedValue('success');
+        await expect(retryLlmCall(llmCall, 'test-params', { maxRetries: 0, initialDelay: 10, backoffFactor: 2 })).rejects.toThrow('LLM call failed after multiple retries.');
+        expect(llmCall).not.toHaveBeenCalled();
+    });
 });

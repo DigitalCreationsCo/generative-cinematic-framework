@@ -4,8 +4,8 @@ import { GCPStorageManager } from './storage-manager';
 const mockFile = {
   save: vi.fn(),
   download: vi.fn(),
-  exists: vi.fn().mockResolvedValue([true]),
-  getMetadata: vi.fn().mockResolvedValue([{ contentType: 'video/mp4' }]),
+  exists: vi.fn().mockResolvedValue([ true ]),
+  getMetadata: vi.fn().mockResolvedValue([ { contentType: 'video/mp4' } ]),
 };
 
 const mockBucket = {
@@ -127,12 +127,44 @@ describe('GCPStorageManager', () => {
     });
   });
 
+  describe('uploadAudioFile', () => {
+    it('should upload audio file if it does not exist', async () => {
+      const localPath = '/tmp/audio.mp3';
+      const destination = 'audio/audio.mp3';
+      const gcsUri = `gs://${bucketName}/${destination}`;
+
+      vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(gcsUri);
+      vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
+      const uploadFileSpy = vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(gcsUri);
+
+      const result = await storageManager.uploadAudioFile(localPath);
+
+      expect(result).toBe(gcsUri);
+      expect(uploadFileSpy).toHaveBeenCalledWith(localPath, destination);
+    });
+
+    it('should skip upload if audio file already exists', async () => {
+      const localPath = '/tmp/audio.mp3';
+      const destination = 'audio/audio.mp3';
+      const gcsUri = `gs://${bucketName}/${destination}`;
+
+      vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(gcsUri);
+      vi.spyOn(storageManager, 'fileExists').mockResolvedValue(true);
+      const uploadFileSpy = vi.spyOn(storageManager, 'uploadFile');
+
+      const result = await storageManager.uploadAudioFile(localPath);
+
+      expect(result).toBe(gcsUri);
+      expect(uploadFileSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('downloadJSON', () => {
     it('should download and parse a JSON file', async () => {
       const source = 'test/test.json';
       const data = { key: 'value' };
       const buffer = Buffer.from(JSON.stringify(data));
-      mockFile.download.mockResolvedValue([buffer]);
+      mockFile.download.mockResolvedValue([ buffer ]);
       const result = await storageManager.downloadJSON(source);
       expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
       expect(mockBucket.file).toHaveBeenCalledWith(source);
@@ -167,7 +199,7 @@ describe('GCPStorageManager', () => {
     it('should download a file to a buffer', async () => {
       const gcsPath = 'gs://test-bucket/test/test.txt';
       const buffer = Buffer.from('test');
-      mockFile.download.mockResolvedValue([buffer]);
+      mockFile.download.mockResolvedValue([ buffer ]);
       const result = await storageManager.downloadToBuffer(gcsPath);
       expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
       expect(mockBucket.file).toHaveBeenCalledWith('test/test.txt');
