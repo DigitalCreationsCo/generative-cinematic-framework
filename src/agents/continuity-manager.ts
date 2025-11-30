@@ -1,6 +1,7 @@
 import {
     Character,
     Scene,
+    Location,
     ContinuityContext,
     CastList,
 } from "../types";
@@ -10,6 +11,7 @@ import { buildllmParams } from "../llm/google/llm-params";
 import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
 import { buildCharacterImagePrompt } from "../prompts/character-image-instruction";
+import { buildLocationImagePrompt } from "../prompts/location-image-instruction";
 import { buildSceneContinuityPrompt, continuitySystemPrompt } from "../prompts/continuity-instructions";
 
 // ============================================================================
@@ -38,9 +40,10 @@ export class ContinuityManagerAgent {
     async prepareSceneInputs(
         scene: Scene,
         characters: Character[],
+        locations: Location[],
         context: ContinuityContext,
         castList: CastList
-    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string; characterReferenceUrls?: string[] }> {
+    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string; characterReferenceUrls?: string[]; locationReferenceUrls?: string[] }> {
         let startFrameUrl = context.previousScene?.lastFrameUrl;
 
         // Check if any character in the scene requires a composite frame
@@ -54,9 +57,17 @@ export class ContinuityManagerAgent {
             characterReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
         }
 
+        // Get location reference images for the scene
+        const locationInScene = locations.find(loc => loc.id === scene.locationId);
+        let locationReferenceUrls;
+        if (locationInScene) {
+            console.log(`   [ContinuityManager] Location detected in scene ${scene.id}: ${locationInScene.name}`);
+            locationReferenceUrls = locationInScene.referenceImageUrls || [];
+        }
+
         const enhancedPrompt = await this.enhanceScenePrompt(scene, characters, context);
 
-        return { enhancedPrompt, startFrameUrl, characterReferenceUrls };
+        return { enhancedPrompt, startFrameUrl, characterReferenceUrls, locationReferenceUrls };
     }
 
 
@@ -87,11 +98,11 @@ export class ContinuityManagerAgent {
                         }
                     }
                 });
-        
+
                 if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
                     throw new Error("Image generation failed to return any images.");
                 }
-        
+
                 const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
                 if (!generatedImageData) {
                     throw new Error("Generated image is missing inline data.");
@@ -125,6 +136,73 @@ export class ContinuityManagerAgent {
             }
         }
         return updatedCharacters;
+    }
+
+    async generateLocationAssets(
+        locations: Location[],
+    ): Promise<Location[]> {
+        console.log(`\n🎨 Generating reference images for ${locations.length} locations...`);
+
+        const updatedLocations: Location[] = [];
+
+        for (const location of locations) {
+            console.log(`  → Generating: ${location.name}`);
+
+            const imagePrompt = buildLocationImagePrompt(location);
+
+            try {
+                const outputMimeType = "image/png";
+
+                const result = await this.imageModel.models.generateContent({
+                    model: "gemini-3-pro-image-preview",
+                    contents: [ imagePrompt ],
+                    config: {
+                        candidateCount: 1,
+                        responseModalities: [ Modality.IMAGE ],
+                        seed: Math.floor(Math.random() * 1000000),
+                        imageConfig: {
+                            outputMimeType: outputMimeType
+                        }
+                    }
+                });
+
+                if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
+                    throw new Error("Image generation failed to return any images.");
+                }
+
+                const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+                if (!generatedImageData) {
+                    throw new Error("Generated image is missing inline data.");
+                }
+
+                const imageBuffer = Buffer.from(generatedImageData, "base64");
+
+                const imagePath = this.storageManager.getGcsObjectPath("location_image", { locationId: location.id });
+                const imageUrl = await this.storageManager.uploadBuffer(
+                    imageBuffer,
+                    imagePath,
+                    outputMimeType,
+                );
+
+                updatedLocations.push({
+                    ...location,
+                    referenceImageUrls: [imageUrl],
+                });
+
+                console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
+
+            } catch (error) {
+                console.error(`    ✗ Failed to generate image for ${location.name}:`, error);
+                updatedLocations.push({
+                    ...location,
+                    referenceImageUrls: [],
+                });
+            } finally {
+                console.log(`   ... waiting ${this.ASSET_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
+                await new Promise(resolve => setTimeout(resolve, this.ASSET_GEN_COOLDOWN_MS));
+            }
+        }
+        return updatedLocations;
     }
 
     async enhanceScenePrompt(

@@ -46,6 +46,7 @@ describe('AudioProcessingAgent', () => {
       }],
       totalDuration: 120,
     };
+    const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
@@ -58,7 +59,7 @@ describe('AudioProcessingAgent', () => {
       }],
     } as any);
 
-    const result = await audioProcessingAgent.processAudioToScenes(localAudioPath);
+    const result = await audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt);
 
     expect(result).toEqual(mockAnalysis);
     expect(storageManager.uploadFile).toHaveBeenCalledWith(localAudioPath, 'audio/audio.mp3');
@@ -72,6 +73,7 @@ describe('AudioProcessingAgent', () => {
       segments: [],
       totalDuration: 120,
     };
+    const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(true);
@@ -84,7 +86,7 @@ describe('AudioProcessingAgent', () => {
       }],
     } as any);
 
-    await audioProcessingAgent.processAudioToScenes(localAudioPath);
+    await audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt);
 
     expect(uploadFileSpy).not.toHaveBeenCalled();
   });
@@ -92,6 +94,7 @@ describe('AudioProcessingAgent', () => {
   it('should throw an error if LLM analysis fails', async () => {
     const localAudioPath = '/path/to/audio.mp3';
     const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
+    const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
@@ -100,20 +103,21 @@ describe('AudioProcessingAgent', () => {
       candidates: [],
     } as any);
 
-    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath)).rejects.toThrow('No valid analysis result from LLM');
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
   });
 
   it('should throw an error if genAI.models.generateContent throws', async () => {
     const localAudioPath = '/path/to/audio.mp3';
     const audioGcsUri = 'gs://bucket-name/audio/audio.mp3';
     const errorMessage = 'genAI error';
+    const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
     vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
     vi.spyOn(genAI.models, 'generateContent').mockRejectedValue(new Error(errorMessage));
 
-    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath)).rejects.toThrow(errorMessage);
+    await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow(errorMessage);
   });
 
   describe('getAudioDuration', () => {

@@ -22,12 +22,13 @@ export class SceneGeneratorAgent {
         enhancedPrompt: string,
         previousFrameUrl?: string,
         characerterReferenceUrls?: string[],
+        locationReferenceUrls?: string[],
     ): Promise<Scene> {
         try {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-            const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls);
+            const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls, locationReferenceUrls);
 
             const onRetry = async (error: any, attempt: number, currentPrompt: string) => {
                 const errorMessage = JSON.stringify(error);
@@ -109,6 +110,7 @@ export class SceneGeneratorAgent {
         sceneId: number,
         startFrame?: string,
         characerterReferenceUrls?: string[],
+        locationReferenceUrls?: string[],
     ): Promise<string> {
         console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
@@ -130,11 +132,21 @@ export class SceneGeneratorAgent {
             referenceType: VideoGenerationReferenceType.ASSET
         }))) : [];
 
+        const locationReferenceImages = locationReferenceUrls ? await Promise.all(locationReferenceUrls.map(async url => ({
+            image: {
+                gcsUri: this.storageManager.getGcsUrl(url),
+                mimeType: await this.storageManager.getObjectMimeType(url) || "image/png",
+            },
+            referenceType: VideoGenerationReferenceType.ASSET
+        }))) : [];
+
+        const allReferenceImages = [...characterReferenceImages, ...locationReferenceImages];
+
         const videoGenParams = buildVideoGenerationParams({
             prompt,
             image: imageParam,
             config: {
-                referenceImages: characterReferenceImages,
+                referenceImages: allReferenceImages,
                 resolution: '720p',
                 durationSeconds,
                 numberOfVideos: 1,

@@ -49,6 +49,7 @@ export const LocationSchema = z.object({
   description: z.string().describe("detailed location description"),
   lightingConditions: z.string().describe("lighting conditions"),
   timeOfDay: z.string().describe("time of day"),
+  referenceImageUrls: z.array(z.string()).describe("URLs to reference images for the location").optional(),
 });
 export type Location = z.infer<typeof LocationSchema>;
 
@@ -166,6 +167,7 @@ export const GraphStateSchema = z.object({
   currentSceneIndex: z.number().describe("index of the scene currently being processed"),
   generatedScenes: z.array(SceneSchema).describe("list of scenes that have been generated"),
   characters: z.array(CharacterSchema).describe("list of characters with reference images"),
+  locations: z.array(LocationSchema).describe("list of locations with reference images"),
   continuityContext: ContinuityContextSchema.describe("tracking state for continuity across scenes"),
   renderedVideoUrl: z.string().optional().describe("GCS URL of final stitched video"),
   errors: z.array(z.string()).describe("list of errors encountered during workflow"),

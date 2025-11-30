@@ -24,14 +24,14 @@ export class AudioProcessingAgent {
      * @param localAudioPath The local path to the audio file (mp3, wav).
      * @returns A promise that resolves to an array of timed scenes and the audio GCS URI.
      */
-    async processAudioToScenes(localAudioPath: string): Promise<AudioAnalysis> {
+    async processAudioToScenes(localAudioPath: string, creativePrompt: string): Promise<AudioAnalysis> {
         console.log(`🎤 Starting audio processing for: ${localAudioPath}`);
 
         const durationSeconds = await this.getAudioDuration(localAudioPath);
         console.log(`   ... Actual audio duration (ffprobe): ${durationSeconds}s`);
 
         const audioGcsUri = this.storageManager.getGcsUrl(localAudioPath);
-        const result = await this.analyzeAudio(audioGcsUri, durationSeconds);
+        const result = await this.analyzeAudio(audioGcsUri, creativePrompt, durationSeconds);
 
         if (!result?.candidates?.[ 0 ]?.content?.parts?.[ 0 ]?.text) {
             throw Error("No valid analysis result from LLM");
@@ -61,7 +61,7 @@ export class AudioProcessingAgent {
         ffmpeg.ffprobe(filePath, callback);
     }
 
-    private async analyzeAudio(gcsUri: string, durationSeconds: number): Promise<GenerateContentResponse> {
+    private async analyzeAudio(gcsUri: string, userPrompt: string, durationSeconds: number): Promise<GenerateContentResponse> {
         console.log(`   ... Analyzing audio with Gemini (detailed musical analysis)...`);
 
         const audioFile: FileData = {
@@ -85,6 +85,7 @@ export class AudioProcessingAgent {
                     role: "user",
                     parts: [
                         { text: prompt },
+                        { text: userPrompt },
                         { fileData: audioFile },
                     ],
                 },

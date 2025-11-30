@@ -17,6 +17,8 @@ import { GCPStorageManager } from "../storage-manager";
 import { buildStoryboardEnrichmentInstructions } from "../prompts/storyboard-composition-instruction";
 import { retryLlmCall, RetryConfig } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
+import { buildPromptExpansionInstruction } from "../prompts/prompt-expansion-instruction";
+import { buildllmParams } from "../llm/google/llm-params";
 
 export class CompositionalAgent {
   private llm: LlmWrapper;
@@ -30,7 +32,6 @@ export class CompositionalAgent {
   async generateStoryboard(storyboard: Storyboard, creativePrompt: string, retryConfig?: RetryConfig): Promise<Storyboard> {
     console.log("   ... Enriching storyboard with a two-pass approach...");
 
-    // First pass: Generate metadata, characters, and locations
     const initialContext = await this._generateInitialContext(creativePrompt, storyboard.scenes, retryConfig);
     console.log("Initial Context:", JSON.stringify(initialContext, null, 2));
 
@@ -189,6 +190,48 @@ export class CompositionalAgent {
       if (orig.duration !== enrich.duration) {
         console.warn(`⚠️ Duration mismatch in scene ${i + 1}: original=${orig.duration}s, enriched=${enrich.duration}s`);
       }
+    }
+  }
+
+  async expandCreativePrompt (
+    userPrompt: string,
+  ): Promise<string> {
+
+    const systemPrompt = buildPromptExpansionInstruction();
+
+    const userMessage = `USER'S CREATIVE PROMPT:
+${userPrompt}
+
+Please expand this into a comprehensive cinematic blueprint following the framework provided.`;
+
+    try {
+
+      const params = buildllmParams({
+         contents: [
+          { role: "user", parts: [ { text: systemPrompt } ] },
+          { role: "user", parts: [ { text: userMessage } ] }
+        ],
+        config: {
+          temperature: 0.9, 
+        }
+      })
+
+      const response = await this.llm.generateContent(params);
+
+      const expandedPrompt = response.text;
+
+      if (!expandedPrompt || expandedPrompt.trim().length === 0) {
+        throw new Error("No content generated from LLM for prompt expansion");
+      }
+
+      console.log(`✓ Creative prompt expanded: ${userPrompt.substring(0, 50)}... → ${expandedPrompt.length} chars`);
+
+      return expandedPrompt;
+
+    } catch (error) {
+      console.error("Failed to expand creative prompt:", error);
+      // Fallback: return original prompt if expansion fails
+      return userPrompt;
     }
   }
 }

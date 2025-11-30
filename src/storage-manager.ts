@@ -6,6 +6,7 @@ export type GcsObjectType =
   | 'storyboard'
   | 'final_output'
   | 'character_image'
+  | 'location_image'
   | 'scene_video'
   | 'scene_last_frame'
   | 'stitched_video'
@@ -135,6 +136,7 @@ export class GCPStorageManager {
     type: GcsObjectType,
     params: {
       characterId?: string;
+      locationId?: string;
       sceneId?: number;
     } = {}
   ): string {
@@ -143,29 +145,33 @@ export class GCPStorageManager {
     switch (type) {
       case 'storyboard':
         return `${basePath}/scenes/storyboard.json`;
-        
+
       case 'character_image':
         if (!params.characterId) throw new Error('characterId is required for character_image');
         return `${basePath}/images/characters/${params.characterId}_reference.png`;
-        
+
+      case 'location_image':
+        if (!params.locationId) throw new Error('locationId is required for location_image');
+        return `${basePath}/images/locations/${params.locationId}_reference.png`;
+
       case 'scene_last_frame':
         if (params.sceneId === undefined) throw new Error('sceneId is required for scene_last_frame');
         return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_lastframe.jpg`;
-          
+
       case 'composite_frame':
         if (params.sceneId === undefined) throw new Error('sceneId is required for composite_frame');
         return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_composite.jpg`;
-        
+
       case 'scene_video':
         if (params.sceneId === undefined) throw new Error('sceneId is required for scene_video');
         return `${basePath}/scenes/scene_${params.sceneId.toString().padStart(3, '0')}.mp4`;
-      
+
       case 'stitched_video':
         return `${basePath}/final/movie.mp4`;
-        
+
       case 'final_output':
         return `${basePath}/final/final_output.json`;
-      
+
       default:
         throw new Error(`Unknown GCS object type: ${type}`);
     }
