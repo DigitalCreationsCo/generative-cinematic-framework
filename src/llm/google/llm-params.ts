@@ -4,6 +4,7 @@ export const buildllmParams = (params: { contents: GenerateContentParameters[ 'c
     model: "gemini-3-pro-preview",
     ...params,
     config: {
+        responseMimeType: "application/json",
         responseModalities: [ Modality.TEXT ],
         safetySettings: [
             {

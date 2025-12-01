@@ -1,11 +1,12 @@
 import { GoogleGenAI, Modality, Part } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
+import { LlmWrapper } from "../llm";
 
 export class FrameCompositionAgent {
-    private imageModel: GoogleGenAI;
+    private imageModel: LlmWrapper;
     private storageManager: GCPStorageManager;
 
-    constructor(imageModel: GoogleGenAI, storageManager: GCPStorageManager) {
+    constructor(imageModel: LlmWrapper, storageManager: GCPStorageManager) {
         this.imageModel = imageModel;
         this.storageManager = storageManager;
     }
@@ -37,7 +38,7 @@ export class FrameCompositionAgent {
         const textPrompt: Part = { text: `Compose a new cinematic frame. Use the main image (input 0) for background, mood, and context. Introduce the character(s) from the reference images (inputs 1+) into this scene, ensuring their appearance is consistent. The new frame should be a natural continuation of the main image's action and composition.` };
 
         const outputMimeType = "image/png";
-        const result = await this.imageModel.models.generateContent({
+        const result = await this.imageModel.generateContent({
             model: "gemini-3-pro-image-preview",
             contents: [ textPrompt, ...lastFrameInput, ...characterReferenceInputs ],
             config: {

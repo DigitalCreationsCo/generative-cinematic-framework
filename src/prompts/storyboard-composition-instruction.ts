@@ -91,7 +91,7 @@ Required structures:
 - **locations**: Extract EVERY location with atmospheric details
   - id, name, description, lightingConditions, timeOfDay
 - **scenes**: Enrich EVERY provided scene (preserve timings exactly)
-  - id, timeStart, timeEnd, duration, shotType, description, cameraMovement, lighting, mood, audioSync, continuityNotes, charactersPresent, locationId
+  - id, startTime, endTime, duration, shotType, description, cameraMovement, lighting, mood, audioSync, continuityNotes, charactersPresent, locationId
   - Keep musicDescription, musicalChange, musicalIntensity, musicalMood, musicalTempo, transitionType AS-IS
 
 INSTRUMENTAL SECTION GUIDANCE:

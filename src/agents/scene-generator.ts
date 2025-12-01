@@ -1,44 +1,224 @@
 import { PersonGeneration, VideoGenerationReferenceType } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
-import { Scene } from "../types";
+import { Character, GeneratedScene, QualityEvaluation, Scene, SceneGenerationResult } from "../types";
 import ffmpeg from "fluent-ffmpeg";
 import { buildVideoGenerationParams, buildllmParams } from "../llm/google/llm-params";
 import fs from "fs";
 import { formatTime, roundToValidDuration } from "../utils";
 import { retryLlmCall } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
+import { QualityCheckAgent } from "./quality-check-agent";
 
 export class SceneGeneratorAgent {
     private llm: LlmWrapper;
     private storageManager: GCPStorageManager;
+    private qualityAgent: QualityCheckAgent;
 
-    constructor(llm: LlmWrapper, storageManager: GCPStorageManager) {
+    constructor(
+        llm: LlmWrapper,
+        storageManager: GCPStorageManager,
+    ) {
         this.llm = llm;
         this.storageManager = storageManager;
+        this.qualityAgent = new QualityCheckAgent(llm, storageManager, {
+            enabled: process.env.ENABLE_QUALITY_CONTROL === 'true' || true,
+        });
     }
 
-    async generateScene(
+    /**
+   * Generate scene with integrated quality control and retry logic.
+   * All quality checking is contained within this method.
+   */
+    async generateSceneWithQualityCheck(
+        scene: Scene,
+        enhancedPrompt: string,
+        characters: Character[],
+        previousScene?: Scene,
+        previousFrameUrl?: string,
+        characterReferenceUrls?: string[],
+        locationReferenceUrls?: string[]
+    ): Promise<SceneGenerationResult> {
+
+        console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
+        console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
+
+        if (!this.qualityAgent.qualityConfig.enabled || !this.qualityAgent) {
+            const generated = await this.generateScene(
+                scene,
+                enhancedPrompt,
+                previousFrameUrl,
+                characterReferenceUrls,
+                locationReferenceUrls
+            );
+            return {
+                scene: generated,
+                attempts: 1,
+                finalScore: 1.0,
+                evaluation: null
+            };
+        }
+
+        return await this.generateWithQualityRetry(
+            scene,
+            enhancedPrompt,
+            characters,
+            previousScene,
+            previousFrameUrl,
+            characterReferenceUrls,
+            locationReferenceUrls
+        );
+    }
+
+    /**
+   * Quality-controlled generation with retry logic.
+   * Handles all quality evaluation, prompt correction, and retry attempts.
+   */
+    private async generateWithQualityRetry(
+        scene: Scene,
+        enhancedPrompt: string,
+        characters: Character[],
+        previousScene?: Scene,
+        previousFrameUrl?: string,
+        characterReferenceUrls?: string[],
+        locationReferenceUrls?: string[]
+    ): Promise<SceneGenerationResult> {
+
+        let bestScene: GeneratedScene | null = null;
+        let bestEvaluation: QualityEvaluation | null = null;
+        let bestScore = 0;
+        let totalAttempts = 0;
+
+        for (let attempt = 1; attempt <= this.qualityAgent.qualityConfig.maxRetries; attempt++) {
+            totalAttempts = attempt;
+
+            try {
+                // Generate scene with safety retry wrapper
+                const generated = await this.generateSceneWithSafetyRetry(
+                    scene,
+                    enhancedPrompt,
+                    previousFrameUrl,
+                    characterReferenceUrls,
+                    locationReferenceUrls,
+                    attempt
+                );
+
+                const evaluation = await this.qualityAgent.evaluateScene(
+                    scene,
+                    generated.generatedVideoUrl!,
+                    enhancedPrompt,
+                    characters,
+                    previousScene
+                );
+
+                const score = this.qualityAgent![ 'calculateOverallScore' ](evaluation.scores);
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestScene = generated;
+                    bestEvaluation = evaluation;
+                }
+
+                this.qualityAgent['logAttemptResult'](attempt, score, evaluation.overall);
+
+                if (score >= this.qualityAgent.qualityConfig.acceptThreshold) {
+                    console.log(`   ✅ Quality acceptable (${(score * 100).toFixed(1)}%)`);
+                    return {
+                        scene: generated,
+                        attempts: totalAttempts,
+                        finalScore: score,
+                        evaluation
+                    };
+                }
+
+                if (attempt >= this.qualityAgent.qualityConfig.maxRetries) {
+                    break;
+                }
+
+                enhancedPrompt = await this.qualityAgent.applyQualityCorrections(
+                    enhancedPrompt,
+                    evaluation,
+                    scene,
+                    characters,
+                    attempt
+                );
+
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+            } catch (error) {
+                console.error(`   ✗ Attempt ${attempt} failed:`, error);
+                if (attempt >= this.qualityAgent.qualityConfig.maxRetries) {
+                    throw error;
+                }
+            }
+        }
+
+        if (bestScene && bestScore > 0) {
+            const scorePercent = (bestScore * 100).toFixed(1);
+            const thresholdPercent = (this.qualityAgent.qualityConfig.acceptThreshold * 100).toFixed(0);
+            console.warn(`   ⚠️ Using best attempt: ${scorePercent}% (threshold: ${thresholdPercent}%)`);
+
+            return {
+                scene: bestScene,
+                attempts: totalAttempts,
+                finalScore: bestScore,
+                evaluation: bestEvaluation!,
+                warning: `Quality below threshold after ${totalAttempts} attempts`
+            };
+        }
+
+        throw new Error(`Failed to generate acceptable scene after ${totalAttempts} attempts`);
+    }
+
+    /**
+   * Internal: Generate scene with safety error retry.
+   */
+    private async generateSceneWithSafetyRetry(
+        scene: Scene,
+        enhancedPrompt: string,
+        previousFrameUrl?: string,
+        characterReferenceUrls?: string[],
+        locationReferenceUrls?: string[],
+        qualityAttempt?: number
+    ) {
+
+        const attemptLabel = qualityAttempt ? ` (Quality Attempt ${qualityAttempt})` : '';
+
+        return await retryLlmCall(
+            (prompt: string) => this.generateScene(
+                scene,
+                prompt,
+                previousFrameUrl,
+                characterReferenceUrls,
+                locationReferenceUrls
+            ),
+            enhancedPrompt,
+            {
+                maxRetries: this.qualityAgent.qualityConfig.safetyRetries,
+                initialDelay: 1000,
+                backoffFactor: 2
+            },
+            async (error: any, attempt: number, currentPrompt: string) => {
+                const errorMessage = JSON.stringify(error);
+                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
+                    console.warn(`   ⚠️ Safety error${attemptLabel}. Sanitizing...`);
+                    return await this.sanitizePrompt(currentPrompt, errorMessage);
+                }
+            }
+        );
+    }
+
+    private async generateScene(
         scene: Scene,
         enhancedPrompt: string,
         previousFrameUrl?: string,
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
-    ): Promise<Scene> {
+    ): Promise<GeneratedScene> {
         try {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-            const llmCall = (currentPrompt: string) => this.executeVideoGeneration(currentPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls, locationReferenceUrls);
-
-            const onRetry = async (error: any, attempt: number, currentPrompt: string) => {
-                const errorMessage = JSON.stringify(error);
-                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
-                    console.warn(`   ⚠️ Attempt ${attempt} failed due to safety/policy error. Sanitizing prompt...`);
-                    return await this.sanitizePrompt(currentPrompt, errorMessage);
-                }
-            };
-
-            const videoUrl = await retryLlmCall(llmCall, enhancedPrompt, { maxRetries: 2, initialDelay: 1000, backoffFactor: 2 }, onRetry);
+            const videoUrl = await this.executeVideoGeneration(enhancedPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls, locationReferenceUrls);
 
             let lastFrameUrl: string | undefined;
             try {
@@ -55,7 +235,7 @@ export class SceneGeneratorAgent {
             };
         } catch (error) {
             console.error(`   ✗ Failed to generate scene ${scene.id}:`, error);
-            throw error; // Re-throw to be handled by the workflow
+            throw error; 
         }
     }
 

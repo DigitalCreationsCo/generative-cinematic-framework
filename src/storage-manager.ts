@@ -10,7 +10,8 @@ export type GcsObjectType =
   | 'scene_video'
   | 'scene_last_frame'
   | 'stitched_video'
-  | 'composite_frame';
+  | 'composite_frame'
+  | 'quality_evaluation';
 
 // ============================================================================
 // GCP STORAGE MANAGER

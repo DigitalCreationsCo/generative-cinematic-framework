@@ -1,3 +1,5 @@
+import { Character } from "./types";
+
 /**
  * Cleans the LLM output to extract the JSON string.
  * It removes markdown code blocks and extracts the JSON object.
@@ -31,3 +33,23 @@ export function roundToValidDuration(duration: number): 4 | 6 | 8 {
   // if (duration <= 7) return 6;
   return 8;
 }
+
+/**
+ * Format character specifications for prompt
+ */
+export function formatCharacterSpecs(characterIds: string[], characters: Character[]): string {
+    if (characterIds.length === 0) return "No characters in this scene.";
+
+    return characterIds
+      .map(id => {
+        const char = characters.find(c => c.id === id);
+        if (!char) return `${id}: [Character not found]`;
+
+        return `${char.name} (${char.id}):
+  - Hair: ${char.physicalTraits.hair}
+  - Clothing: ${char.physicalTraits.clothing}
+  - Accessories: ${char.physicalTraits.accessories.join(", ")}
+  - Reference: ${char.referenceImageUrls?.[0] || "None"}`;
+      })
+      .join("\n\n");
+  }

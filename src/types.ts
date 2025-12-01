@@ -201,6 +201,20 @@ export interface VideoGenerationConfig {
   negativePrompt?: string;
 }
 
+export type GeneratedScene = Scene & {
+  enhancedPrompt: string;
+  generatedVideoUrl: string;
+  lastFrameUrl?: string | undefined;
+}
+
+export interface SceneGenerationResult {
+  scene: GeneratedScene;
+  attempts: number;
+  finalScore: number;
+  evaluation: QualityEvaluation | null;
+  warning?: string;
+}
+
 // ============================================================================
 // TYPE GUARDS
 // ============================================================================
@@ -281,3 +295,52 @@ export const CAMERA_MOVEMENTS = [
   "Zoom Out",
 ] as const;
 export type CameraMovement = typeof CAMERA_MOVEMENTS[ number ];
+
+// ============================================================================
+// QUALITY EVALUATION SCHEMAS
+// ============================================================================
+
+export interface QualityEvaluation {
+  overall: "ACCEPT" | "ACCEPT_WITH_NOTES" | "REGENERATE_MINOR" | "REGENERATE_MAJOR" | "FAIL";
+  scores: {
+    narrativeFidelity: QualityScore;
+    characterConsistency: QualityScore;
+    technicalQuality: QualityScore;
+    emotionalAuthenticity: QualityScore;
+    continuity: QualityScore;
+  };
+  issues: QualityIssue[];
+  feedback: string;
+  promptCorrections?: PromptCorrection[];
+}
+
+export interface QualityScore {
+  rating: "PASS" | "MINOR_ISSUES" | "MAJOR_ISSUES" | "FAIL";
+  weight: number; // Percentage weight in overall score
+  details: string;
+}
+
+export interface QualityIssue {
+  category: string;
+  severity: "critical" | "major" | "minor";
+  description: string;
+  videoTimestamp?: string;
+  suggestedFix: string;
+}
+
+export interface PromptCorrection {
+  issueType: string;
+  originalPromptSection: string;
+  correctedPromptSection: string;
+  reasoning: string;
+}
+
+export interface QualityConfig {
+  enabled: boolean;
+  acceptThreshold: number;
+  minorIssueThreshold: number;
+  majorIssueThreshold: number;
+  failThreshold: number;
+  maxRetries: number;
+  safetyRetries: number;
+}

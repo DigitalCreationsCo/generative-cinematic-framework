@@ -18,6 +18,7 @@ import {
   Storyboard,
   ContinuityContext,
   GraphState,
+  QualityEvaluation,
 } from "./types";
 import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { CompositionalAgent } from "./agents/compositional-agent";
@@ -31,6 +32,7 @@ import { hideBin } from "yargs/helpers";
 
 import * as dotenv from "dotenv";
 import { defaultCreativePrompt } from "./prompts/default-creative-prompt";
+import { QualityCheckAgent } from "./agents/quality-check-agent";
 dotenv.config();
 
 class CinematicVideoWorkflow {
@@ -62,14 +64,15 @@ class CinematicVideoWorkflow {
     this.storageManager = new GCPStorageManager(projectId, videoId, bucketName);
 
     const llmWrapper = new LlmWrapper(new GoogleProvider(llm, llm));
-    this.audioProcessingAgent = new AudioProcessingAgent(this.storageManager, llm);
+
+    this.audioProcessingAgent = new AudioProcessingAgent(llmWrapper, this.storageManager);
     this.compositionalAgent = new CompositionalAgent(llmWrapper, this.storageManager);
-    this.frameCompositionAgent = new FrameCompositionAgent(llm, this.storageManager);
+    this.frameCompositionAgent = new FrameCompositionAgent(llmWrapper, this.storageManager);
     this.continuityAgent = new ContinuityManagerAgent(
-      llm,
-      llm,
+      llmWrapper,
+      llmWrapper,
+      this.frameCompositionAgent,
       this.storageManager,
-      this.frameCompositionAgent
     );
     this.sceneAgent = new SceneGeneratorAgent(llmWrapper, this.storageManager);
 
@@ -226,15 +229,12 @@ class CinematicVideoWorkflow {
       }
 
       const sceneVideoPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: scene.id });
-
       if (await this.storageManager.fileExists(sceneVideoPath)) {
         console.log(`   ... Scene video already exists at ${sceneVideoPath}, skipping.`);
 
-        const videoGcsUrl = this.storageManager.getGcsUrl(sceneVideoPath);
-
         const generatedScene: Scene = {
           ...scene,
-          generatedVideoUrl: videoGcsUrl,
+          generatedVideoUrl: this.storageManager.getGcsUrl(sceneVideoPath),
           lastFrameUrl
         };
 
@@ -252,8 +252,6 @@ class CinematicVideoWorkflow {
         };
       }
 
-      // REFACTOR prepareSceneInputs TO RETURN CHARACTERREFERNCEURLS WITHOUT GENERATING COMPOSITE FRAME
-      // OMIT GENERATING CHARACTER CONTINUITY FRAMES FOR NOW AS IT MAY BE REDUCING SCENE QUALITY
       const { enhancedPrompt, characterReferenceUrls, locationReferenceUrls } = await this.continuityAgent.prepareSceneInputs(
         scene,
         state.characters,
@@ -262,26 +260,32 @@ class CinematicVideoWorkflow {
         { characters: state.characters }
       );
 
-      const generatedScene = await this.sceneAgent.generateScene(
+      const result = await this.sceneAgent.generateSceneWithQualityCheck(
         scene,
         enhancedPrompt,
+        state.characters,
+        state.continuityContext.previousScene,
         lastFrameUrl,
         characterReferenceUrls,
         locationReferenceUrls
       );
 
+      if (result.evaluation) {
+        console.log(`   📊 Final: ${(result.finalScore * 100).toFixed(1)}% after ${result.attempts} attempt(s)`);
+      }
+
       console.log(`   ... waiting ${this.SCENE_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
       await new Promise(resolve => setTimeout(resolve, this.SCENE_GEN_COOLDOWN_MS));
 
       const updatedContext = this.continuityAgent.updateContinuityContext(
-        generatedScene,
+        result.scene,
         state.continuityContext,
         state.characters
       );
 
       return {
         ...state,
-        generatedScenes: [ ...state.generatedScenes, generatedScene ],
+        generatedScenes: [ ...state.generatedScenes, result.scene ],
         currentSceneIndex: state.currentSceneIndex + 1,
         continuityContext: updatedContext,
       };

@@ -9,12 +9,13 @@ import path from "path";
 import { cleanJsonOutput, formatTime, roundToValidDuration } from "../utils";
 import ffmpeg from "fluent-ffmpeg";
 import { buildAudioProcessingInstruction } from "../prompts/audio-processing-instruction";
+import { LlmWrapper } from "../llm";
 
 export class AudioProcessingAgent {
+    private genAI: LlmWrapper;
     private storageManager: GCPStorageManager;
-    private genAI: GoogleGenAI;
 
-    constructor(storageManager: GCPStorageManager, genAI: GoogleGenAI) {
+    constructor(genAI: LlmWrapper, storageManager: GCPStorageManager,) {
         this.storageManager = storageManager;
         this.genAI = genAI;
     }
@@ -88,7 +89,7 @@ export class AudioProcessingAgent {
             jsonSchema
         );
 
-        const result = await this.genAI.models.generateContent({
+        const result = await this.genAI.generateContent({
             model: "gemini-3-pro-preview",
             contents: [
                 {

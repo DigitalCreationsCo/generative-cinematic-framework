@@ -13,23 +13,24 @@ import { FrameCompositionAgent } from "./frame-composition-agent";
 import { buildCharacterImagePrompt } from "../prompts/character-image-instruction";
 import { buildLocationImagePrompt } from "../prompts/location-image-instruction";
 import { buildSceneContinuityPrompt, continuitySystemPrompt } from "../prompts/continuity-instructions";
+import { LlmWrapper } from "../llm";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
 // ============================================================================
 
 export class ContinuityManagerAgent {
-    private llm: GoogleGenAI;
-    private imageModel: GoogleGenAI;
+    private llm: LlmWrapper;
+    private imageModel: LlmWrapper;
     private storageManager: GCPStorageManager;
     private frameComposer: FrameCompositionAgent;
     private ASSET_GEN_COOLDOWN_MS = 30000;
 
     constructor(
-        llm: GoogleGenAI,
-        imageModel: GoogleGenAI,
+        llm: LlmWrapper,
+        imageModel: LlmWrapper,
+        frameComposer: FrameCompositionAgent,
         storageManager: GCPStorageManager,
-        frameComposer: FrameCompositionAgent
     ) {
         this.llm = llm;
         this.imageModel = imageModel;
@@ -86,7 +87,7 @@ export class ContinuityManagerAgent {
             try {
                 const outputMimeType = "image/png";
 
-                const result = await this.imageModel.models.generateContent({
+                const result = await this.imageModel.generateContent({
                     model: "gemini-3-pro-image-preview",
                     contents: [ imagePrompt ],
                     config: {
@@ -153,7 +154,7 @@ export class ContinuityManagerAgent {
             try {
                 const outputMimeType = "image/png";
 
-                const result = await this.imageModel.models.generateContent({
+                const result = await this.imageModel.generateContent({
                     model: "gemini-3-pro-image-preview",
                     contents: [ imagePrompt ],
                     config: {
@@ -240,7 +241,7 @@ export class ContinuityManagerAgent {
         
         const userPrompt = buildSceneContinuityPrompt(scene, characterDetails, contextInfo);
 
-        const response = await this.llm.models.generateContent(buildllmParams({
+        const response = await this.llm.generateContent(buildllmParams({
             contents: [ continuitySystemPrompt, userPrompt ]
         })); 0;
         return cleanJsonOutput(response.text || "");
