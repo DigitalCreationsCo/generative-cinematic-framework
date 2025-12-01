@@ -46,6 +46,7 @@ export class SceneGeneratorAgent {
             const generated = await this.generateScene(
                 scene,
                 enhancedPrompt,
+                1,
                 previousFrameUrl,
                 characterReferenceUrls,
                 locationReferenceUrls
@@ -96,10 +97,10 @@ export class SceneGeneratorAgent {
                 const generated = await this.generateSceneWithSafetyRetry(
                     scene,
                     enhancedPrompt,
+                    attempt,
                     previousFrameUrl,
                     characterReferenceUrls,
                     locationReferenceUrls,
-                    attempt
                 );
 
                 const evaluation = await this.qualityAgent.evaluateScene(
@@ -107,7 +108,8 @@ export class SceneGeneratorAgent {
                     generated.generatedVideoUrl!,
                     enhancedPrompt,
                     characters,
-                    previousScene
+                    attempt,
+                    previousScene,
                 );
 
                 const score = this.qualityAgent![ 'calculateOverallScore' ](evaluation.scores);
@@ -175,18 +177,19 @@ export class SceneGeneratorAgent {
     private async generateSceneWithSafetyRetry(
         scene: Scene,
         enhancedPrompt: string,
+        attempt: number,
         previousFrameUrl?: string,
         characterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
-        qualityAttempt?: number
     ) {
 
-        const attemptLabel = qualityAttempt ? ` (Quality Attempt ${qualityAttempt})` : '';
+        const attemptLabel = attempt ? ` (Quality Attempt ${attempt})` : '';
 
         return await retryLlmCall(
             (prompt: string) => this.generateScene(
                 scene,
                 prompt,
+                attempt,
                 previousFrameUrl,
                 characterReferenceUrls,
                 locationReferenceUrls
@@ -210,6 +213,7 @@ export class SceneGeneratorAgent {
     private async generateScene(
         scene: Scene,
         enhancedPrompt: string,
+        attempt: number,
         previousFrameUrl?: string,
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
@@ -218,11 +222,19 @@ export class SceneGeneratorAgent {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
-            const videoUrl = await this.executeVideoGeneration(enhancedPrompt, scene.duration, scene.id, previousFrameUrl, characerterReferenceUrls, locationReferenceUrls);
+            const videoUrl = await this.executeVideoGeneration(
+                enhancedPrompt,
+                scene.duration,
+                scene.id,
+                attempt,
+                previousFrameUrl,
+                characerterReferenceUrls,
+                locationReferenceUrls
+            );
 
             let lastFrameUrl: string | undefined;
             try {
-                lastFrameUrl = await this.extractLastFrame(videoUrl, scene.id);
+                lastFrameUrl = await this.extractLastFrame(videoUrl, scene.id, attempt);
             } catch (error) {
                 console.error(`   ⚠️ Failed to extract last frame for scene ${scene.id}, continuing without it:`, error);
             }
@@ -288,6 +300,7 @@ export class SceneGeneratorAgent {
         prompt: string,
         duration: number,
         sceneId: number,
+        attempt: number,
         startFrame?: string,
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
@@ -295,7 +308,7 @@ export class SceneGeneratorAgent {
         console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
         const outputMimeType = "video/mp4";
-        const objectPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: sceneId });
+        const objectPath = this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: sceneId, attempt });
 
         let durationSeconds = roundToValidDuration(duration);
 
@@ -376,7 +389,8 @@ export class SceneGeneratorAgent {
 
     async extractLastFrame(
         videoUrl: string,
-        sceneId: number
+        sceneId: number,
+        attempt: number
     ): Promise<string> {
         const tempVideoPath = `/tmp/scene_${sceneId}.mp4`;
         const tempFramePath = `/tmp/scene_${sceneId}_lastframe.jpg`;
@@ -385,7 +399,7 @@ export class SceneGeneratorAgent {
             await this.storageManager.downloadFile(videoUrl, tempVideoPath);
 
             return new Promise((resolve, reject) => {
-                const framePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: sceneId });
+                const framePath = this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: sceneId, attempt });
                 let ffmpegError = '';
 
                 ffmpeg.ffprobe(tempVideoPath, (err, metadata) => {
@@ -499,7 +513,7 @@ export class SceneGeneratorAgent {
                     .on('error', (err: Error) => reject(err));
             });
 
-            const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
+            const objectPath = this.storageManager.getGcsObjectPath({ type: 'stitched_video' });
             console.log(`   ... Uploading stitched video to ${objectPath}`);
             const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
 
@@ -552,7 +566,7 @@ export class SceneGeneratorAgent {
                     .on('error', (err: Error) => reject(err));
             });
 
-            const objectPath = this.storageManager.getGcsObjectPath('stitched_video');
+            const objectPath = this.storageManager.getGcsObjectPath({ type: 'stitched_video' });
             console.log(`   ... Uploading stitched video to ${objectPath}`);
             const gcsUri = await this.storageManager.uploadFile(finalVideoPath, objectPath);
 

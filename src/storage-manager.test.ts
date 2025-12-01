@@ -46,25 +46,69 @@ describe('GCPStorageManager', () => {
 
   describe('getGcsObjectPath', () => {
     it('should generate correct paths for all object types', () => {
-      expect(storageManager.getGcsObjectPath('storyboard')).toBe('test-video/scenes/storyboard.json');
-      expect(storageManager.getGcsObjectPath('character_image', { characterId: 'char1' })).toBe('test-video/images/characters/char1_reference.png');
-      expect(storageManager.getGcsObjectPath('scene_last_frame', { sceneId: 1 })).toBe('test-video/images/frames/scene_001_lastframe.jpg');
-      expect(storageManager.getGcsObjectPath('composite_frame', { sceneId: 1 })).toBe('test-video/images/frames/scene_001_composite.jpg');
-      expect(storageManager.getGcsObjectPath('scene_video', { sceneId: 1 })).toBe('test-video/scenes/scene_001.mp4');
-      expect(storageManager.getGcsObjectPath('stitched_video')).toBe('test-video/final/movie.mp4');
-      expect(storageManager.getGcsObjectPath('final_output')).toBe('test-video/final/final_output.json');
+      expect(storageManager.getGcsObjectPath({ type: 'storyboard' })).toBe('test-video/scenes/storyboard.json');
+      expect(storageManager.getGcsObjectPath({ type: 'character_image', characterId: 'char1' })).toBe('test-video/images/characters/char1_reference.png');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 1, attempt: 3 })).toBe('test-video/images/frames/scene_001_lastframe_03.jpg');
+      expect(storageManager.getGcsObjectPath({ type: 'composite_frame', sceneId: 1, attempt: 2 })).toBe('test-video/images/frames/scene_001_composite_02.jpg');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 1 })).toBe('test-video/scenes/scene_001_01.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'quality_evaluation', sceneId: 1, attempt: 5 })).toBe('test-video/scenes/scene_001_evaluation_05.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'stitched_video' })).toBe('test-video/final/movie.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'final_output' })).toBe('test-video/final/final_output.json');
     });
 
-    it('should throw an error for missing required parameters', () => {
-      expect(() => storageManager.getGcsObjectPath('character_image')).toThrow('characterId is required for character_image');
-      expect(() => storageManager.getGcsObjectPath('scene_last_frame')).toThrow('sceneId is required for scene_last_frame');
-      expect(() => storageManager.getGcsObjectPath('composite_frame')).toThrow('sceneId is required for composite_frame');
-      expect(() => storageManager.getGcsObjectPath('scene_video')).toThrow('sceneId is required for scene_video');
+    it('should use default attempt (1) when attempt is not provided', () => {
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1 })).toBe('test-video/scenes/scene_001_01.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 2 })).toBe('test-video/images/frames/scene_002_lastframe_01.jpg');
+      expect(storageManager.getGcsObjectPath({ type: 'composite_frame', sceneId: 3 })).toBe('test-video/images/frames/scene_003_composite_01.jpg');
+      expect(storageManager.getGcsObjectPath({ type: 'quality_evaluation', sceneId: 4 })).toBe('test-video/scenes/scene_004_evaluation_01.mp4');
+    });
+
+    it('should use latest attempt when attempt is "latest"', () => {
+      storageManager.setLatestAttempt('scene_video', 1, 5);
+      storageManager.setLatestAttempt('scene_last_frame', 2, 3);
+
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_05.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 2, attempt: 'latest' })).toBe('test-video/images/frames/scene_002_lastframe_03.jpg');
+    });
+
+    it('should use latest attempt when attempt is undefined after setting', () => {
+      storageManager.setLatestAttempt('composite_frame', 1, 7);
+      storageManager.setLatestAttempt('quality_evaluation', 2, 4);
+
+      expect(storageManager.getGcsObjectPath({ type: 'composite_frame', sceneId: 1 })).toBe('test-video/images/frames/scene_001_composite_07.jpg');
+      expect(storageManager.getGcsObjectPath({ type: 'quality_evaluation', sceneId: 2 })).toBe('test-video/scenes/scene_002_evaluation_04.mp4');
     });
 
     it('should throw an error for unknown object type', () => {
       // @ts-expect-error
-      expect(() => storageManager.getGcsObjectPath('unknown_type')).toThrow('Unknown GCS object type: unknown_type');
+      expect(() => storageManager.getGcsObjectPath({ type: 'unknown_type' })).toThrow('Unknown GCS object type: unknown_type');
+    });
+  });
+
+  describe('setLatestAttempt', () => {
+    it('should set the latest attempt for a given object type and sceneId', () => {
+      storageManager.setLatestAttempt('scene_video', 1, 3);
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_03.mp4');
+    });
+
+    it('should only update if the new attempt is greater than the current', () => {
+      storageManager.setLatestAttempt('scene_video', 1, 5);
+      storageManager.setLatestAttempt('scene_video', 1, 3); // Should not update
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_05.mp4');
+    });
+
+    it('should track attempts independently for different scene IDs', () => {
+      storageManager.setLatestAttempt('scene_video', 1, 2);
+      storageManager.setLatestAttempt('scene_video', 2, 5);
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_02.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 2, attempt: 'latest' })).toBe('test-video/scenes/scene_002_05.mp4');
+    });
+
+    it('should track attempts independently for different object types', () => {
+      storageManager.setLatestAttempt('scene_video', 1, 3);
+      storageManager.setLatestAttempt('scene_last_frame', 1, 7);
+      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_03.mp4');
+      expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 1, attempt: 'latest' })).toBe('test-video/images/frames/scene_001_lastframe_07.jpg');
     });
   });
 

@@ -221,13 +221,13 @@ class CinematicVideoWorkflow {
       );
 
       let lastFrameUrl: string | undefined;
-      const lastFramePath = this.storageManager.getGcsObjectPath("scene_last_frame", { sceneId: scene.id });
+      const lastFramePath = this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: scene.id });
       if (await this.storageManager.fileExists(lastFramePath)) {
         lastFrameUrl = this.storageManager.getGcsUrl(lastFramePath);
         console.log(`   ... Found last frame for continuity: ${lastFrameUrl}`);
       }
 
-      const sceneVideoPath = this.storageManager.getGcsObjectPath("scene_video", { sceneId: scene.id });
+      const sceneVideoPath = this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: scene.id });
       if (await this.storageManager.fileExists(sceneVideoPath)) {
         console.log(`   ... Scene video already exists at ${sceneVideoPath}, skipping.`);
 
@@ -325,7 +325,7 @@ class CinematicVideoWorkflow {
       console.log("\n✅ PHASE 4: Finalizing Workflow...");
       console.log(`   Total scenes generated: ${state.generatedScenes.length}`);
 
-      const outputPath = this.storageManager.getGcsObjectPath("final_output");
+      const outputPath = this.storageManager.getGcsObjectPath({ type: "final_output" });
       await this.storageManager.uploadJSON(
         {
           storyboard: state.storyboard,
@@ -385,12 +385,12 @@ class CinematicVideoWorkflow {
 
     try {
         console.log("   Checking for existing storyboard...");
-        const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+        const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
         const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
         console.log("   Found existing storyboard. Resuming workflow.");
 
         const characterPromises = storyboard.characters.map(async (char) => {
-            const charImgPath = this.storageManager.getGcsObjectPath("character_image", { characterId: char.id });
+            const charImgPath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
             if (await this.storageManager.fileExists(charImgPath)) {
                 console.log(`   ... Character image for ${char.name} already exists, skipping.`);
                 const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
@@ -400,7 +400,7 @@ class CinematicVideoWorkflow {
         });
 
         const locationPromises = storyboard.locations.map(async (loc) => {
-            const locImgPath = this.storageManager.getGcsObjectPath("location_image", { locationId: loc.id });
+            const locImgPath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
             if (await this.storageManager.fileExists(locImgPath)) {
                 console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
                 const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
@@ -488,7 +488,7 @@ async function main() {
     .argv;
 
   const videoId = argv.id || `video_${Date.now()}`;
-  const audioPath = argv.audio === LOCAL_AUDIO_PATH ? LOCAL_AUDIO_PATH : argv.audio;
+  const audioPath = argv.audio ?? LOCAL_AUDIO_PATH ?? undefined;
   
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 

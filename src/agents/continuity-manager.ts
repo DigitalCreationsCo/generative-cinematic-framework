@@ -111,7 +111,7 @@ export class ContinuityManagerAgent {
 
                 const imageBuffer = Buffer.from(generatedImageData, "base64");
 
-                const imagePath = this.storageManager.getGcsObjectPath("character_image", { characterId: character.id });
+                const imagePath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: character.id });
                 const imageUrl = await this.storageManager.uploadBuffer(
                     imageBuffer,
                     imagePath,
@@ -178,7 +178,7 @@ export class ContinuityManagerAgent {
 
                 const imageBuffer = Buffer.from(generatedImageData, "base64");
 
-                const imagePath = this.storageManager.getGcsObjectPath("location_image", { locationId: location.id });
+                const imagePath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: location.id });
                 const imageUrl = await this.storageManager.uploadBuffer(
                     imageBuffer,
                     imagePath,

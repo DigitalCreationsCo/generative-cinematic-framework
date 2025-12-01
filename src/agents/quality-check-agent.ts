@@ -20,12 +20,12 @@ export class QualityCheckAgent {
     this.storageManager = storageManager;
     this.qualityConfig = {
       enabled: true,
-      acceptThreshold: 0.85,
-      minorIssueThreshold: 0.70,
-      majorIssueThreshold: 0.50,
-      failThreshold: 0.50,
-      maxRetries: 3,
-      safetyRetries: 2,
+      acceptThreshold: process.env.ACCEPT_THRESHOLD ? Number(process.env.ACCEPT_THRESHOLD) : 0.95,
+      minorIssueThreshold: process.env.MINOR_ISSUE_THRESHOLD ? Number(process.env.MINOR_ISSUE_THRESHOLD) : 0.90,
+      majorIssueThreshold: process.env.MAJOR_ISSUE_THRESHOLD ? Number(process.env.MAJOR_ISSUE_THRESHOLD) : 0.7,
+      failThreshold: process.env.FAILTHRESHOLD ? Number(process.env.FAILTHRESHOLD) : 0.7,
+      maxRetries: process.env.MAX_RETRIES ? Number(process.env.MAX_RETRIES) : 3,
+      safetyRetries: process.env.SAFETY_RETRIES ? Number(process.env.SAFETY_RETRIES) : 2,
       ...qualityConfig
     };
   }
@@ -38,7 +38,8 @@ export class QualityCheckAgent {
     generatedVideoUrl: string,
     enhancedPrompt: string,
     characters: Character[],
-    previousScene?: Scene
+    attempt: number,
+    previousScene?: Scene,
   ): Promise<QualityEvaluation> {
     
     console.log(`\n🔍 Quality Check: Scene ${scene.id}`);
@@ -82,7 +83,7 @@ export class QualityCheckAgent {
 
       this.logEvaluationResults(scene.id, evaluation, overallScore);
 
-      await this.saveEvaluation(scene.id, evaluation);
+      await this.saveEvaluation(scene.id, attempt, evaluation);
 
       return evaluation;
 
@@ -237,11 +238,11 @@ export class QualityCheckAgent {
    */
   private async saveEvaluation(
     sceneId: number,
+    attempt: number,
     evaluation: QualityEvaluation
   ): Promise<void> {
     const evaluationPath = this.storageManager.getGcsObjectPath(
-      "quality_evaluation",
-      { sceneId }
+      { type: "quality_evaluation", sceneId, attempt }
     );
     
     await this.storageManager.uploadJSON(evaluation, evaluationPath);

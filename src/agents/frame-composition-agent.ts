@@ -60,7 +60,7 @@ export class FrameCompositionAgent {
         }
 
         const imageBuffer = Buffer.from(generatedImageData, "base64");
-        const outputPath = this.storageManager.getGcsObjectPath("composite_frame", { sceneId });
+        const outputPath = this.storageManager.getGcsObjectPath({ type: "composite_frame", sceneId });
 
         console.log(`   ... Uploading composite frame to ${outputPath}`);
         const gcsUri = await this.storageManager.uploadBuffer(imageBuffer, outputPath, outputMimeType);

@@ -102,7 +102,7 @@ export class CompositionalAgent {
 
     this.validateTimingPreservation(storyboard.scenes, finalStoryboard.scenes);
 
-    const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+    const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
     await this.storageManager.uploadJSON(finalStoryboard, storyboardPath);
 
     console.log(`✓ Storyboard enriched successfully:`);
@@ -307,7 +307,7 @@ Generate a complete cinematic storyboard for this concept.`;
     const storyboard = await retryLlmCall(llmCall, undefined, retryConfig);
 
     // Save storyboard
-    const storyboardPath = this.storageManager.getGcsObjectPath("storyboard");
+    const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
     await this.storageManager.uploadJSON(storyboard, storyboardPath);
 
     console.log(`✓ Storyboard generated successfully:`);

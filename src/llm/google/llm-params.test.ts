@@ -15,6 +15,7 @@ describe('LLM Parameter Builders', () => {
             expect(result.model).toBe('gemini-3-pro-preview');
             expect(result.contents).toEqual(params.contents);
             expect(result.config).toEqual({
+                responseMimeType: "application/json",
                 responseModalities: [ Modality.TEXT ],
                 safetySettings: [
                     {

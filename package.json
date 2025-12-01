@@ -7,7 +7,7 @@
   "license": "ISC",
   "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node src/index.ts --audio audio/talk.mp3",
+    "start": "ts-node src/index.ts",
     "build": "tsc -b",
     "watch": "tsc -watch",
     "test": "vitest run",

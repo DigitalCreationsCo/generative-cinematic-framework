@@ -21,9 +21,7 @@ describe('AudioProcessingAgent', () => {
     });
     storageManager = new GCPStorageManager('project-id', 'video-id', 'bucket-name');
     genAI = {
-      models: {
-        generateContent: vi.fn(),
-      },
+      generateContent: vi.fn(),
     } as unknown as LlmWrapper;
     audioProcessingAgent = new AudioProcessingAgent(genAI, storageManager);
   });
