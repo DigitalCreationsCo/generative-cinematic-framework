@@ -1,4 +1,4 @@
-import { PersonGeneration, VideoGenerationReferenceType } from "@google/genai";
+import { PersonGeneration, Video, Image, VideoGenerationReferenceType } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Character, GeneratedScene, QualityEvaluation, Scene, SceneGenerationResult } from "../types";
 import ffmpeg from "fluent-ffmpeg";
@@ -49,7 +49,8 @@ export class SceneGeneratorAgent {
                 1,
                 previousFrameUrl,
                 characterReferenceUrls,
-                locationReferenceUrls
+                locationReferenceUrls,
+                previousScene
             );
             return {
                 scene: generated,
@@ -66,7 +67,7 @@ export class SceneGeneratorAgent {
             previousScene,
             previousFrameUrl,
             characterReferenceUrls,
-            locationReferenceUrls
+            locationReferenceUrls,
         );
     }
 
@@ -181,6 +182,7 @@ export class SceneGeneratorAgent {
         previousFrameUrl?: string,
         characterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
+        previousScene?: Scene,
     ) {
 
         const attemptLabel = attempt ? ` (Quality Attempt ${attempt})` : '';
@@ -192,7 +194,8 @@ export class SceneGeneratorAgent {
                 attempt,
                 previousFrameUrl,
                 characterReferenceUrls,
-                locationReferenceUrls
+                locationReferenceUrls,
+                previousScene,
             ),
             enhancedPrompt,
             {
@@ -217,6 +220,7 @@ export class SceneGeneratorAgent {
         previousFrameUrl?: string,
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
+        previousScene?: Scene,
     ): Promise<GeneratedScene> {
         try {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
@@ -229,7 +233,8 @@ export class SceneGeneratorAgent {
                 attempt,
                 previousFrameUrl,
                 characerterReferenceUrls,
-                locationReferenceUrls
+                locationReferenceUrls,
+                previousScene,
             );
 
             let lastFrameUrl: string | undefined;
@@ -304,6 +309,7 @@ export class SceneGeneratorAgent {
         startFrame?: string,
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
+        previousScene?: Scene,
     ): Promise<string> {
         console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
@@ -313,9 +319,18 @@ export class SceneGeneratorAgent {
         let durationSeconds = roundToValidDuration(duration);
 
         const imageParam = startFrame ? {
-            gcsUri: startFrame,
-            mimeType: await this.storageManager.getObjectMimeType(startFrame) || "image/png"
+            image: {
+                gcsUri: startFrame,
+                mimeType: await this.storageManager.getObjectMimeType(startFrame) || "image/png"
+            }
         } : undefined;
+
+        const sourceParam: { video: Video} | { image: Image } | undefined = previousScene?.generatedVideoUrl ? {
+            video: {
+                uri: previousScene.generatedVideoUrl,
+                mimeType: await this.storageManager.getObjectMimeType(previousScene.generatedVideoUrl),
+            }
+        } : imageParam;
 
         const characterReferenceImages = characerterReferenceUrls ? await Promise.all(characerterReferenceUrls.map(async url => ({
             image: {
@@ -337,7 +352,7 @@ export class SceneGeneratorAgent {
 
         const videoGenParams = buildVideoGenerationParams({
             prompt,
-            image: imageParam,
+            ...sourceParam,
             config: {
                 referenceImages: allReferenceImages,
                 resolution: '720p',
