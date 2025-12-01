@@ -3,7 +3,7 @@ import { Scene, Character, QualityEvaluation, PromptCorrection, QualityConfig } 
 import { GCPStorageManager } from "../storage-manager";
 import { buildEvaluationPrompt } from "../prompts/evaluation-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
-import { buildCorrectionPrompt } from "../prompts/correction-instruction";
+import { buildCorrectionPrompt } from "../prompts/prompt-correction-instruction";
 import { LlmWrapper } from "../llm";
 
 export class QualityCheckAgent {

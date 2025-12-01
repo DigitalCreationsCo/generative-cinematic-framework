@@ -32,7 +32,6 @@ import { hideBin } from "yargs/helpers";
 
 import * as dotenv from "dotenv";
 import { defaultCreativePrompt } from "./prompts/default-creative-prompt";
-import { QualityCheckAgent } from "./agents/quality-check-agent";
 dotenv.config();
 
 class CinematicVideoWorkflow {
@@ -467,6 +466,7 @@ class CinematicVideoWorkflow {
 async function main() {
   const projectId = process.env.GCP_PROJECT_ID || "your-project-id";
   const bucketName = process.env.GCP_BUCKET_NAME || "your-bucket-name";
+  const LOCAL_AUDIO_PATH = process.env.LOCAL_AUDIO_PATH;
 
   const argv = await yargs(hideBin(process.argv))
     .option('id', {
@@ -488,7 +488,7 @@ async function main() {
     .argv;
 
   const videoId = argv.id || `video_${Date.now()}`;
-  const audioPath = argv.audio;
+  const audioPath = argv.audio === LOCAL_AUDIO_PATH ? LOCAL_AUDIO_PATH : argv.audio;
   
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 

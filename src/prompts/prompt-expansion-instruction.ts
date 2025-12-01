@@ -140,6 +140,7 @@ SECTION 5: VISUAL LANGUAGE
 - Color as emotion (warm/cool, saturated/desaturated)
 
 **Cinematography Philosophy**:
+- Shot on 35mm film
 - Camera behavior (handheld/locked-off, when and why)
 - Lens choices for emotional effect
 - Movement vocabulary (dolly/track/crane/static)

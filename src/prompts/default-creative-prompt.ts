@@ -1,4 +1,14 @@
 export const defaultCreativePrompt = `
+Create a full-length music video featuring narrative shots interlaced with a live musical performance.
+Dynamically switch between cinematic shots and musical performance shots.
+
+Narrative:
+A man and a woman having an intimate, slightly emotional conversation. Rainy night scene on a suburban street. Cinematic lighting with reflections on wet pavement. Close-up shots capturing their facial expressions and emotions. Shallow depth of field.
+`
+
+
+
+export const defaultCreativePrompt2 = `
 ========================================
 THE LAST CONVERSATION
 A Short Film / Music Video
