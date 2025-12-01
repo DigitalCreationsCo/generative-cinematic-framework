@@ -1,4 +1,4 @@
-import { PersonGeneration, Video, Image, VideoGenerationReferenceType } from "@google/genai";
+import { PersonGeneration, Video, Image, VideoGenerationReferenceType, Operation, GenerateVideosResponse } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Character, GeneratedScene, QualityEvaluation, Scene, SceneGenerationResult } from "../types";
 import ffmpeg from "fluent-ffmpeg";
@@ -364,7 +364,13 @@ export class SceneGeneratorAgent {
             }
         });
 
-        let operation = await this.llm.generateVideos(videoGenParams);
+        let operation: Operation<GenerateVideosResponse>;
+        try {
+            operation = await this.llm.generateVideos(videoGenParams);
+        } catch (error) {
+            console.error('   Error generating video: ', error)
+            throw error;
+        }
 
         const startTime = Date.now();
         const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes

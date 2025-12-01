@@ -28,6 +28,13 @@ export class QualityCheckAgent {
       safetyRetries: process.env.SAFETY_RETRIES ? Number(process.env.SAFETY_RETRIES) : 2,
       ...qualityConfig
     };
+
+    if (isNaN(this.qualityConfig.acceptThreshold)) throw Error('Accept Threshold is not a number');
+    if (isNaN(this.qualityConfig.minorIssueThreshold)) throw Error('Minor Issue Threshold is not a number');
+    if (isNaN(this.qualityConfig.majorIssueThreshold)) throw Error('Major Issue Threshold is not a number');
+    if (isNaN(this.qualityConfig.failThreshold)) throw Error('Fail Threshold is not a number');
+    if (isNaN(this.qualityConfig.maxRetries)) throw Error('Max Retries is not a number');
+    if (isNaN(this.qualityConfig.safetyRetries)) throw Error('Safety Retries is not a number');
   }
 
   /**
