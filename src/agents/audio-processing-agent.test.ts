@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AudioProcessingAgent } from './audio-processing-agent';
 import { GCPStorageManager } from '../storage-manager';
-import { GoogleGenAI } from '@google/genai';
+import { LlmWrapper } from "../llm";
 import ffmpeg from 'fluent-ffmpeg';
 
 vi.mock('fluent-ffmpeg', () => ({
@@ -13,7 +13,7 @@ vi.mock('fluent-ffmpeg', () => ({
 describe('AudioProcessingAgent', () => {
   let audioProcessingAgent: AudioProcessingAgent;
   let storageManager: GCPStorageManager;
-  let genAI: GoogleGenAI;
+  let genAI: LlmWrapper;
 
   beforeEach(() => {
     (ffmpeg as any).ffprobe.mockImplementation((filePath: any, callback: any) => {
@@ -24,8 +24,8 @@ describe('AudioProcessingAgent', () => {
       models: {
         generateContent: vi.fn(),
       },
-    } as unknown as GoogleGenAI;
-    audioProcessingAgent = new AudioProcessingAgent(storageManager, genAI);
+    } as unknown as LlmWrapper;
+    audioProcessingAgent = new AudioProcessingAgent(genAI, storageManager);
   });
 
   it('should process audio to storyboard', async () => {
@@ -51,7 +51,7 @@ describe('AudioProcessingAgent', () => {
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
     vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
-    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
+    vi.spyOn(genAI, 'generateContent').mockResolvedValue({
       candidates: [ {
         content: {
           parts: [ { text: JSON.stringify(mockAnalysis) } ],
@@ -63,7 +63,7 @@ describe('AudioProcessingAgent', () => {
 
     expect(result).toEqual(mockAnalysis);
     // expect(storageManager.uploadFile).toHaveBeenCalledWith(localAudioPath, 'audio/audio.mp3'); // Upload removed from agent
-    expect(genAI.models.generateContent).toHaveBeenCalled();
+    expect(genAI.generateContent).toHaveBeenCalled();
   });
 
   // it('should skip upload if file exists', async () => { ... }) - Test removed as upload logic is moved out
@@ -76,7 +76,7 @@ describe('AudioProcessingAgent', () => {
       vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
       // vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
       // vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
-      vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({
+      vi.spyOn(genAI, 'generateContent').mockResolvedValue({
         candidates: [],
       } as any);
 
@@ -89,7 +89,7 @@ describe('AudioProcessingAgent', () => {
     const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
-    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue(null as any);
+    vi.spyOn(genAI, 'generateContent').mockResolvedValue(null as any);
 
     await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
   });
@@ -100,7 +100,7 @@ describe('AudioProcessingAgent', () => {
     const creativePrompt = 'A creative prompt.';
 
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
-    vi.spyOn(genAI.models, 'generateContent').mockResolvedValue({} as any);
+    vi.spyOn(genAI, 'generateContent').mockResolvedValue({} as any);
 
     await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow('No valid analysis result from LLM');
   });
@@ -114,7 +114,7 @@ describe('AudioProcessingAgent', () => {
     vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(audioGcsUri);
     // vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
     // vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(audioGcsUri);
-    vi.spyOn(genAI.models, 'generateContent').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(genAI, 'generateContent').mockRejectedValue(new Error(errorMessage));
 
     await expect(audioProcessingAgent.processAudioToScenes(localAudioPath, creativePrompt)).rejects.toThrow(errorMessage);
   });
