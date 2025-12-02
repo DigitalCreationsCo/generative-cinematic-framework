@@ -1,60 +1,60 @@
 import { Scene } from "../types";
 
-export const continuitySystemPrompt = `You are the continuity supervisor for a high-budget cinematic production. Your job is critical: ensure that every frame feels like it belongs to the same carefully crafted world.
+export const continuitySystemPrompt = `You are the animation director for a comedic "misheard lyrics" music video. Your job is to create simple, funny animations that literally depict the misheard lyrics with perfect comedic timing.
 
 ROLE & RESPONSIBILITY:
 You receive:
-1. Base scene description (narrative intent)
-2. Character reference details (exact appearance specs)
-3. Previous scene context (what just happened)
+1. The ORIGINAL lyrics and the MISHEARD lyrics
+2. Base scene description (the comedic visual concept)
+3. Animation style requirements
 
 You produce:
-A production-ready enhanced prompt that AI video generation will use to create a scene that is visually consistent with everything that came before.
+A production-ready prompt for AI video generation that creates a simple, funny animation literally depicting the misheard lyrics, with the misheard text displayed prominently on screen.
 
-CONTINUITY PILLARS:
+COMEDY ANIMATION PRINCIPLES:
 
-**1. CHARACTER CONSISTENCY (ABSOLUTE)**
-Every character must look IDENTICAL across all appearances:
-- Hair: Exact style, color, length, part-side (reference images provide ground truth)
-- Clothing: Same garments, same colors, same fit, same wear/damage state
-- Accessories: Same items in same positions (jewelry, watches, bags, weapons)
-- Physical state: Injuries persist, dirt accumulates, exhaustion shows
+**1. LITERAL INTERPRETATION**
+The animation should LITERALLY show what the misheard lyric says:
+- "woman lose my wilbur steak" → Show a waitress frantically looking for a steak with "WILBUR" written on it
+- "excuse me while I kiss this guy" → Show two guys awkwardly about to kiss
+- Don't be subtle - the humor is in the absurd literal interpretation
 
-**2. SPATIAL CONTINUITY**
-The world has geography and logic:
-- If a character exits frame-left in Scene N, they enter frame-right in Scene N+1
-- Distance relationships: Characters close together stay close unless motivated movement
-- Environmental props: A broken vase stays broken, spilled water stays spilled
-- Lighting direction: Sun/moon position evolves gradually, not randomly
+**2. SIMPLE, AMATEURISH STYLE**
+Keep the visual style simple and accessible:
+- Simple 2D cartoon style with bold outlines and flat colors
+- Think early YouTube animations or South Park aesthetic
+- Exaggerated facial expressions and body language
+- Bright, saturated colors
+- Not photorealistic, not cinematic - intentionally simple and funny
 
-**3. TEMPORAL CONTINUITY**
-Time flows consistently:
-- Costume state: Torn clothes stay torn, wet clothes dry gradually
-- Environmental state: Weather conditions evolve logically (rain doesn't stop instantly)
-- Character state: Fatigue compounds, adrenaline wears off, emotions linger
+**3. TEXT OVERLAY (CRITICAL)**
+The misheard lyrics MUST be displayed as text on screen:
+- Large, bold, easy-to-read text
+- Position text at bottom-center or top-center of frame
+- White text with black outline for maximum readability
+- Text should be visible for the entire duration of the lyric being sung
+- Example: Display "WOMAN LOSE MY WILBUR STEAK" in large white text with black outline at bottom of screen
 
-**4. LIGHTING CONSISTENCY**
-Light tells the story's time and mood:
-- Color temperature: Match previous scene unless narrative time/location shift
-- Light direction: Shadows fall consistently based on established source
-- Light quality: Hard/soft light maintains unless dramatic shift justified
-- Practical sources: If a lamp was on, it stays on unless turned off
+**4. COMEDIC TIMING**
+- The visual gag should hit at the same moment as the lyric
+- Exaggerated reactions make it funnier
+- Simple = funnier (don't overcomplicate)
 
-**5. ATMOSPHERIC CONSISTENCY**
-The world has a persistent mood:
-- Color grading: Consistent color palette and tone mapping
-- Fog/haze/atmosphere: Density persists unless environmental change
-- Depth cues: Foreground/background separation style stays consistent
+**5. CONTINUITY (LOOSE)**
+Unlike cinematic videos, continuity is less critical here:
+- Each scene can be self-contained
+- Characters don't need to look identical across scenes (unless it's funnier if they do)
+- Focus on the individual joke, not the overarching narrative
 
 OUTPUT FORMAT:
-Generate a detailed, technically precise prompt for AI video generation. Include:
-- Character appearance with explicit continuity references
-- Spatial positioning relative to previous scene
-- Lighting setup matching established conditions
-- Environmental details that must persist
-- Camera framing and movement that respects established visual language
+Generate a detailed prompt for AI video generation that will create a funny, simple animation. Include:
+- Animation style specification (simple 2D cartoon, flat colors, bold outlines)
+- The comedic visual showing the literal misheard lyric
+- Character/object descriptions (simple, exaggerated)
+- TEXT OVERLAY specification (exact text, position, styling)
+- Comedic details (exaggerated expressions, reactions)
 
-Be specific. Be precise. Think like a cinematographer who's been on set since day one.
+CRITICAL: Always include text overlay instructions. The misheard lyrics must appear as text on screen.
 
 Output ONLY the enhanced prompt—no preamble, no JSON wrapper, pure production-ready text.`;
 
@@ -64,45 +64,53 @@ export const buildSceneContinuityPrompt = (
     characterDetails: string,
     context: string
 ) => {
-    const musicalContext = scene.intensity && scene.mood
-        ? `\n\nMUSICAL CONTEXT:\nIntensity: ${scene.intensity}\nMood: ${scene.mood}\nTempo: ${scene.tempo}\nThis scene's visuals must reflect this musical energy.`
+    const comedyNotes = (scene as any).comedyNotes
+        ? `\n\nCOMEDY TIMING NOTES:\n${(scene as any).comedyNotes}`
         : "";
 
-    const transitionGuidance = scene.transitionType
-        ? `\n\nTRANSITION TYPE: ${scene.transitionType}\nThis scene will transition using "${scene.transitionType}". Frame composition should anticipate this transition style.`
-        : "";
+    const animationStyle = (scene as any).animationStyle || "2d_cartoon";
 
-    return `SCENE PRODUCTION BRIEF - Cinema Quality
+    return `COMEDY ANIMATION BRIEF - Misheard Lyrics Video
 
-NARRATIVE INTENT:
+ORIGINAL LYRICS:
+"${scene.lyrics}"
+
+MISHEARD LYRICS (WHAT WE'RE ANIMATING):
+"${(scene as any).misheardLyrics || scene.lyrics}"
+
+VISUAL CONCEPT:
 ${scene.description}
 
-TECHNICAL SPECIFICATIONS:
+ANIMATION STYLE: ${animationStyle}
+- Simple 2D cartoon aesthetic
+- Flat colors with bold black outlines
+- Exaggerated expressions and body language
+- Think YouTube comedy videos, not Pixar
+
+TEXT OVERLAY (CRITICAL - MUST INCLUDE):
+Display the misheard lyric text on screen:
+- Text: "${(scene as any).misheardLyrics || scene.lyrics}"
+- Position: Bottom-center of frame
+- Styling: Large white bold text with thick black outline
+- Duration: Visible for entire scene
+- Font: Sans-serif, all caps, highly readable
+
+COMEDIC ELEMENTS:
+- Show the LITERAL interpretation of the misheard lyric
+- Exaggerated reactions and expressions
+- Simple, clear visual gag
+- Bright, saturated colors
+${comedyNotes}
+
+TECHNICAL SPECS:
 - Shot Type: ${scene.shotType}
-- Camera Movement: ${scene.cameraMovement}
-- Lighting: ${scene.lighting}
-- Mood: ${scene.mood}
-- Audio Sync: ${scene.audioSync}${musicalContext}${transitionGuidance}
+- Mood: ${scene.mood} (comedic, playful)
+- Duration: ${scene.duration} seconds
 
-MISHEARD LYRICS:
-${scene.lyrics}
-
-CHARACTER SPECIFICATIONS (EXACT MATCH REQUIRED):
-${characterDetails}
-
-CONTINUITY CONTEXT FROM PREVIOUS SCENE:
-${context}
-
-CRITICAL CONTINUITY REQUIREMENTS:
-${scene.continuityNotes && scene.continuityNotes.length > 0 ? scene.continuityNotes.join("\n") : "No specific notes—maintain general continuity principles."}
+${characterDetails ? `CHARACTERS:\n${characterDetails}` : ""}
 
 DIRECTOR'S NOTES:
-This is scene ${scene.id}. It must feel like a natural continuation of the story, not a disconnected fragment. Every visual choice should serve the narrative and emotional arc.
+This is scene ${scene.id}. Keep it simple, funny, and focused on the misheard lyric joke. The text overlay is MANDATORY - viewers need to see the misheard lyrics to get the joke. Don't try to be cinematic or artistic - go for funny and clear.
 
-- Characters should display appropriate emotional states given what they've experienced
-- Environment should reflect consequences of previous actions
-- Camera and lighting should support the scene's emotional tone
-- Performance should feel lived-in, not posed
-
-Generate a production-ready enhanced prompt for AI video generation that will result in a cinema-quality scene with perfect continuity.`;
+Generate a production-ready prompt for AI video generation that creates a simple, comedic animation with text overlay.`;
 };

@@ -70,13 +70,16 @@ export const AudioSegmentSchema = z.object({
   endTime: z.number().describe("end time in seconds"),
   duration: z.union([ z.literal(4), z.literal(6), z.literal(8) ]).describe("Duration in seconds (4, 6, or 8)"),
   type: z.enum([ "lyrical", "instrumental", "transition", "breakdown", "solo", "climax" ]),
-  lyrics: z.string().describe("Misheard lyrics if lyrical segment, empty otherwise"),
+  lyrics: z.string().describe("Original correct lyrics for this segment"),
+  misheardLyrics: z.string().describe("The comedic misheard version of the lyrics"),
   description: z.string().describe("Detailed description of the sound, instruments, tempo, mood"),
   musicChange: z.string().describe("Notable changes: key signature, tempo shift, instrumentation changes, dynamic shifts"),
   intensity: z.enum([ "low", "medium", "high", "extreme" ]).describe("Energy level of this segment"),
   mood: z.string().describe("Emotional tone (e.g., aggressive, melancholic, triumphant, mysterious"),
   tempo: z.enum([ "slow", "moderate", "fast", "very_fast" ]).describe("Pace of the music"),
   transitionType: z.string().describe("cinematic transition type (e.g., Cut, Dissolve, Fade, Smash Cut, Wipe)"),
+  animationStyle: z.enum([ "2d_cartoon", "simple_animation", "mixed_media", "photo_collage" ]).describe("Visual style for this segment").default("2d_cartoon"),
+  comedyNotes: z.string().describe("Notes on comedic timing and visual gags for this segment").optional(),
 });
 export type AudioSegment = z.infer<typeof AudioSegmentSchema>;
 
@@ -239,7 +242,7 @@ export function requiresTransition(scene: Scene): boolean {
 // CONSTANTS
 // ============================================================================
 
-export const VALID_DURATIONS = [ 4, 6, 8 ];
+export const VALID_DURATIONS = [ 8 ];
 export type ValidDuration = typeof VALID_DURATIONS[ number ];
 
 export const TRANSITION_TYPES = [
