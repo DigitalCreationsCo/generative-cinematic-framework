@@ -17,7 +17,7 @@ import { GCPStorageManager } from "../storage-manager";
 import { buildStoryboardEnrichmentInstructions } from "../prompts/storyboard-composition-instruction";
 import { retryLlmCall, RetryConfig } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
-import { buildPromptExpansionInstruction } from "../prompts/prompt-expansion-instruction";
+import { misheardLyricsInstructions } from "../prompts/prompt-expansion-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
 
 export class CompositionalAgent {
@@ -197,19 +197,13 @@ export class CompositionalAgent {
     userPrompt: string,
   ): Promise<string> {
 
-    const systemPrompt = buildPromptExpansionInstruction();
-
-    const userMessage = `USER'S CREATIVE PROMPT:
-${userPrompt}
-
-Please expand this into a comprehensive cinematic blueprint following the framework provided.`;
+    const prompt = misheardLyricsInstructions(userPrompt);
 
     try {
 
       const params = buildllmParams({
          contents: [
-          { role: "user", parts: [ { text: systemPrompt } ] },
-          { role: "user", parts: [ { text: userMessage } ] }
+          { role: "user", parts: [ { text: prompt } ] },
         ],
         config: {
           temperature: 0.9,

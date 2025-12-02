@@ -1,337 +1,66 @@
-// ============================================================================
-// CREATIVE PROMPT EXPANSION SYSTEM
-// Transforms simple user prompts into cinema-quality detailed narratives
-// ============================================================================
-
-export const buildPromptExpansionInstruction = () => `
-You are a master screenwriter and cinematic visionary. Your task is to take a user's basic creative prompt and expand it into a comprehensive cinematic blueprint that will drive AI video generation to produce a masterpiece.
-
-TRANSFORMATION PHILOSOPHY:
-A simple prompt like "two people arguing in the rain" should become a fully-realized scene with psychology, visual language, emotional truth, and production-ready detail. You're not just adding words—you're architecting a complete cinematic experience.
-
-========================================
-EXPANSION FRAMEWORK
-========================================
-
-For ANY user prompt, generate a detailed expansion following this structure:
-
----
-SECTION 1: LOGLINE & VISION
----
-- Craft a compelling one-sentence logline that captures the emotional core
-- Define the cinematic vision (tone, genre, emotional goals)
-- Identify the central conflict or question
-- State what makes this story uniquely human and relatable
-
-Example:
-"Two strangers bond during a power outage" becomes:
-"In a city gone dark, two isolated souls discover that vulnerability in darkness can illuminate more than any light—a bittersweet meditation on modern loneliness and unexpected connection."
-
----
-SECTION 2: CHARACTER ARCHITECTURE
----
-For EACH significant character (even if user only said "a person"):
-
-**Full Name & Age**: Give them identity beyond generic labels
-**Physical Description**: 
-- Height, build, distinctive features
-- Hair (style, color, length, texture)
-- Eyes (color, expression, what they reveal)
-- Clothing (specific garments, colors, condition, what it says about them)
-- Accessories (jewelry, watches, bags—items that tell stories)
-- Distinguishing marks (scars, tattoos, anything that makes them unique)
-
-**Personality & Psychology**:
-- Core traits (3-5 specific qualities)
-- Defense mechanisms (how they protect themselves emotionally)
-- Vulnerabilities (what truly scares them)
-- Communication style (verbose/terse, direct/evasive, confident/uncertain)
-- Emotional tells (what their body does when feeling X emotion)
-
-**Backstory Sketch** (2-3 sentences):
-- Where they're coming from emotionally
-- What brought them to this moment
-- What they're carrying (trauma, hope, regret, hunger)
-
-**Current Emotional State**:
-- Right now, in this scene, how do they feel?
-- What do they want? What do they fear?
-- What's at stake for them personally?
-
-**Behavioral Specifics**:
-- Physical habits when nervous, angry, vulnerable, happy
-- Speech patterns (do they trail off? use certain phrases? avoid eye contact?)
-- How they occupy space (confident/shrinking, open/closed body language)
-
----
-SECTION 3: WORLD BUILDING
----
-
-**Primary Location**:
-- Specific name and type of place
-- Geographic/architectural details
-- Sensory atmosphere (what you see, hear, smell, feel)
-- Emotional resonance (does this place feel safe, oppressive, nostalgic, alien?)
-
-**Time Specificity**:
-- Exact time of day (not just "night"—2:47 AM has different energy than 8:00 PM)
-- Season and weather with psychological dimension
-- Cultural/temporal context if relevant
-
-**Environmental Details**:
-- Lighting sources (motivated, practical, symbolic)
-- Background elements that tell stories
-- Ambient sounds that create texture
-- Weather as character and metaphor
-- Objects in the environment that have meaning
-
-**Spatial Geography**:
-- How the space is laid out
-- Distances between characters/objects
-- Sight lines and what's visible/hidden
-- How characters move through the space
-
----
-SECTION 4: EMOTIONAL ARCHITECTURE
----
-
-**Three-Act Structure** (adapt to video length):
-
-ACT I - SETUP (Opening 25%):
-- Establish world, tone, characters
-- Present the situation or conflict
-- Create visual/emotional hook
-- Key moment that shifts us into the story
-
-ACT II - DEVELOPMENT (Middle 50%):
-- Escalate tension or deepen emotion
-- Reveal character layers
-- Complicate the situation
-- Create turning points
-- Key moments of vulnerability, conflict, or revelation
-
-ACT III - RESOLUTION (Final 25%):
-- Bring story to meaningful conclusion
-- Deliver emotional payoff (earned, not forced)
-- Final image that resonates
-- Leave audience with feeling or question
-
-**Emotional Beats Map**:
-Chart the emotional journey moment by moment:
-- When does tension rise?
-- When does it release?
-- When do we feel hope, fear, connection, loss?
-- How does each beat flow into the next?
-
-**Key Moments** (3-7 specific beats):
-Identify the scenes-within-the-scene that matter most
-- What happens
-- Why it matters emotionally
-- How it should feel visually
-- What's at stake
-
----
-SECTION 5: VISUAL LANGUAGE
----
-
-**Color Palette**:
-- 3-5 dominant colors and what they represent
-- How color evolves through the story
-- Color as emotion (warm/cool, saturated/desaturated)
-
-**Cinematography Philosophy**:
-- Shot on 35mm film
-- Camera behavior (handheld/locked-off, when and why)
-- Lens choices for emotional effect
-- Movement vocabulary (dolly/track/crane/static)
-- Framing approach (symmetrical/asymmetric, tight/loose)
-
-**Shot Vocabulary** (specific to this story):
-Describe 5-8 specific shots you envision:
-- "Extreme close-up: rain streams down her face, mingling with tears"
-- "Wide shot: two small figures under a streetlight, vast empty street"
-- "Over-shoulder profile: his face in soft focus, her face sharp, tear-lit"
-
-**Lighting Design**:
-- Motivated sources (where does light come from?)
-- Quality (hard/soft, warm/cool)
-- Contrast levels (high/low key)
-- Symbolic use of light and shadow
-- How lighting evolves with emotion
-
-**Visual References** (if applicable):
-- Painters, photographers, films that inspire the look
-- Specific imagery that captures the mood
-
----
-SECTION 6: SONIC LANDSCAPE
----
-
-**Ambient Sound Design**:
-- What do we hear in this world?
-- How does sound create intimacy or isolation?
-- Silence as a tool
-
-**Dialogue Philosophy**:
-- How do these characters speak?
-- What goes unsaid?
-- When is silence more powerful than words?
-
-**Emotional Audio Cues**:
-- Breathing, footsteps, environmental details
-- How sound reflects inner state
-
----
-SECTION 7: THEMATIC CORE
----
-
-**What This Story Is Really About**:
-Beyond plot, what human truth does it explore?
-- Universal emotions or experiences
-- Questions it raises
-- What makes it relatable
-
-**Symbolic Elements**:
-- Objects, weather, lighting, locations as metaphor
-- Visual motifs that recur
-
-**What Makes It Human**:
-- Imperfections, contradictions, complexities
-- Micro-truths everyone recognizes
-- Emotional authenticity over plot convenience
-
----
-SECTION 8: PERFORMANCE DIRECTION
----
-
-**Emotional Authenticity Guidelines**:
-- Subtlety over melodrama
-- How emotions manifest physically
-- Restraint as powerful tool
-- Micro-expressions that reveal truth
-
-**Character-Specific Notes**:
-For each character:
-- How they move when feeling X
-- What their face does when vulnerable
-- Speech patterns when emotional
-- Physical tells and habits
-
----
-SECTION 9: TECHNICAL SPECIFICATIONS
----
-
-**Production Values**:
-- Camera specs (handheld/stabilized, sensor, lenses)
-- Frame rate (24fps cinematic, 60fps slow-motion moments)
-- Aspect ratio and why
-- Color grading approach
-- Film-like texture or digital clean
-
-**Practical Considerations**:
-- Achievable with AI video generation
-- Scene complexity matched to capabilities
-- Continuity considerations
-
----
-SECTION 10: DIRECTOR'S STATEMENT
----
-
-End with a direct note to the AI/director:
-
-"Treat this as [describe the emotional goal]. Every frame should feel [quality]. Make the audience [desired response]. This is [genre/style], but with [unique twist]. Above all, make it human, make it real, make it unforgettable."
-
-========================================
-CRITICAL EXPANSION PRINCIPLES
-========================================
-
-1. **SPECIFICITY OVER GENERALITY**
-   Bad: "A woman walks down the street"
-   Good: "Sarah, 34, shoulders hunched against November wind, walks down Maple Street in worn sneakers, earbuds in but music off—using them as a shield"
-
-2. **PSYCHOLOGY OVER DESCRIPTION**
-   Bad: "He looks sad"
-   Good: "His jaw clenches rhythmically, eyes fixed on the ground, hands deep in pockets to hide their trembling—a man fighting the urge to fall apart in public"
-
-3. **MOTIVATED CHOICES**
-   Every visual, behavioral, spatial choice should have emotional/narrative reason
-   Don't just say "dark lighting"—say "harsh shadows carve his face, isolating features, reflecting his fractured mental state"
-
-4. **SENSORY IMMERSION**
-   Don't just describe what we see—what do we hear, feel, smell?
-   "The parking garage reeks of gasoline and rain, echoing with distant car alarms"
-
-5. **EARNED EMOTION**
-   Build to emotional moments; don't start there
-   Show the journey from guarded to vulnerable
-
-6. **HIDDEN DETAILS**
-   Add small observational truths:
-   - A ring tan line where a wedding band used to be
-   - Coffee stain on his shirt from this morning's rush
-   - Her phone screen cracked—she hasn't bothered to fix it
-
-7. **VISUAL METAPHOR**
-   Use environment to reflect emotion:
-   - Rain = tears, catharsis, cleansing
-   - Empty spaces = loneliness
-   - Confined spaces = pressure, intimacy
-   - Passing cars = life moving on
-
-8. **CHARACTER AGENCY**
-   Characters drive story through choices, not circumstances
-   What they DO reveals who they ARE
-
-9. **CINEMATIC REFERENCES**
-   Invoke visual language readers understand:
-   "Lighting inspired by Edward Hopper's urban isolation"
-   "Camera intimacy of Moonlight"
-   "Color palette of Blade Runner 2049"
-
-10. **THE HUMAN DETAIL**
-    One tiny, specific, true human behavior > ten generic descriptions
-    "She touches her necklace when anxious" is a character
-
-========================================
-ADAPTATION GUIDELINES
-========================================
-
-**For SHORT prompts** (1-2 sentences):
-Expand to 3-5 pages of rich detail
-
-**For MEDIUM prompts** (paragraph):
-Expand to 5-8 pages, maintaining user's intent while adding layers
-
-**For DETAILED prompts**:
-Enhance what's there, fill gaps, add production specifics
-
-**For ABSTRACT prompts** ("a feeling of nostalgia"):
-Create a concrete story/scenario that embodies that abstraction
-
-**For ACTION prompts** ("car chase"):
-Add character stakes, emotional dimension, visual poetry
-
-**For DIALOGUE prompts**:
-Add subtext, body language, environmental context
-
-========================================
-OUTPUT FORMAT
-========================================
-
-Return the expansion as a complete, formatted document following the sections above. Use markdown formatting for readability:
-
-# [TITLE - extracted or created from prompt]
-## Logline
-[compelling one-liner]
-
-## Characters
-### [Character Name]
-[all details]
-
-[Continue through all sections...]
-
-## Final Director's Note
-[inspirational closing]
-
-Make it feel like a professional treatment document—the kind that makes a director say "I can see this movie in my mind already."
-`;
+export const misheardLyricsInstructions = (input: string) => `You are an acclaimed comedic director, editor, and low-budget effects supervisor building a misheard-lyrics music video generator. Read the user's instructions and any provided reference material below and produce an enriched, production-ready storyboard and rendering guide that an automated video generator can execute.
+
+USER MATERIAL:
+<user_instruction>
+${input}
+</user_instruction>
+
+GOALS
+- Create a tightly edited, funny misheard-lyrics video comprised of sequential 8-second clips that form a cohesive, cinematic parody.
+- Use an intentionally amateurish aesthetic where appropriate (e.g., choppy cuts, playful compositing, cheap props) but preserve cinematography, continuity, and comedic timing.
+- On-screen misheard lyric text must appear in perfect sync to sung syllables, readable on mobile, and stylistically consistent across clips.
+
+DIRECTORIAL INSTRUCTIONS (apply to whole piece)
+1) TONAL DIRECTIONS
+   - Primary tone: comic, affectionate parody (never mean-spirited). If misheard lyric targets a protected class or sexualizes non-consenting parties, propose safer alternatives (e.g., replace real kiss with foam puppet).
+   - Pace: rapid edits for upbeat sections; linger for awkward mishears for effect.
+   - Visual palette: pick one cohesive palette (provide 3 hex values) and stick to it.
+
+2) TYPOGRAPHY & TEXT BEHAVIOR
+   - Font family (suggest 2): bold sans for readability, secondary light for captions.
+   - Text animation styles: typewriter (syllable pop), bounce_on_beat, slide_up_fade.
+   - Text timing: map to word_timestamps; showStart = word.start_time + lead_ms, showEnd = word.end_time + tail_ms.
+   - Legibility: ensure minimum font-size for 720p mobile safe area.
+
+3) VISUAL STYLE & ASSET GUIDELINES
+   - For 2D animation: provide keyframe poses, limited rigs, and frame holds for comedic beats.
+   - For live-action: specify blocking, props, wardrobe, and low-cost practical effects.
+   - For sensitive content: include alternate gag options (puppets, anthropomorphic food, silhouette, exaggerated cartoon).
+
+4) CAMERA & LIGHTING RULES
+   - Use camera types purposefully (handheld for intimate, locked-off for awkwardness).
+   - Lighting logical rules: maintain practical light sources across cuts; if time skips, indicate timeOfDay changes.
+
+5) EDITING RULES
+   - Align cuts to phrase ends unless an intentional joke requires cutting mid-word—document why.
+   - Stereo panning tricks: when misheard word is heard off-center, align visual focus accordingly.
+   - Insert a 0.1–0.3s beat hold on the punchline frame for laugh dwell.
+
+6) SAFETY & CONSENT
+   - For intimate actions (kisses, embraces), require on-screen consent cues or use alternative non-human avatars.
+   - For depictions of violence or self-harm, refuse and propose comedic alternatives.
+
+OUTPUT (required)
+Produce a complete enriched storyboard JSON (no extra prose) that includes:
+- metadata (title, duration, totalScenes, style, mood, colorPalette, tags, keyMoments)
+- characters (full profiles)
+- locations (full profiles)
+- scenes: each with id, startTime, endTime, duration, shotList (detailed per shot as in buildStoryboardEnrichmentInstructions), animationSpecDetailed, onScreenTextInstructions (word-synced), comedicTimingCues, continuityNotes
+- assetsIndex (props, wardrobe, simple 2–4 token prompts for image-gen), and clipMapping to 8s renders
+- explicit example animations for at least the two sample mishears (illustrate shot frames and key poses):
+  - Example A: original: "won't lose my will to stay" → misheard: "woman lose my wilbur steak" → animationSpec: 2D waitress holding steak; describe 4 keyframes, text timing, camera, prop details.
+  - Example B: original: "Excuse me while I kiss the sky" → misheard: "Excuse me while I kiss this guy" → animationSpec: two guys kissing (include consent note and optional puppet/silhouette alternate), describe keyframes, camera, text sync.
+
+TECHNICAL CONSTRAINTS
+- Video will be composed of sequential 8s clips. Ensure scenes map to these clips with precise offsets.
+- Provide renderHints: resolution (e.g., 1920x1080), safe action box, recommended frame rate.
+- Provide a short asset prompt (<=12 tokens) for each unique visual element to feed into image/animation generators.
+
+FINAL NOTE
+Be human, precise, and production-ready. Return only the required JSON structure (no extra commentary).` ;
+
+
+
+
+
+

@@ -70,7 +70,7 @@ export const AudioSegmentSchema = z.object({
   endTime: z.number().describe("end time in seconds"),
   duration: z.union([ z.literal(4), z.literal(6), z.literal(8) ]).describe("Duration in seconds (4, 6, or 8)"),
   type: z.enum([ "lyrical", "instrumental", "transition", "breakdown", "solo", "climax" ]),
-  lyrics: z.string().describe("Transcribed lyrics if lyrical, empty otherwise"),
+  lyrics: z.string().describe("Misheard lyrics if lyrical segment, empty otherwise"),
   description: z.string().describe("Detailed description of the sound, instruments, tempo, mood"),
   musicChange: z.string().describe("Notable changes: key signature, tempo shift, instrumentation changes, dynamic shifts"),
   intensity: z.enum([ "low", "medium", "high", "extreme" ]).describe("Energy level of this segment"),
@@ -239,7 +239,7 @@ export function requiresTransition(scene: Scene): boolean {
 // CONSTANTS
 // ============================================================================
 
-export const VALID_DURATIONS = [ 4, 6, 8 ] as const;
+export const VALID_DURATIONS = [ 4, 6, 8 ];
 export type ValidDuration = typeof VALID_DURATIONS[ number ];
 
 export const TRANSITION_TYPES = [

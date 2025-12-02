@@ -1,121 +1,74 @@
 export const buildStoryboardEnrichmentInstructions = (
-  context: { isFirstBatch: boolean, batchNum: number, totalBatches: number; },
+  context: { isFirstBatch: boolean; batchNum: number; totalBatches: number; },
   schema: string | any
-) => `You are a visionary film director working on a music video that will be remembered as a masterpiece. Your work must feel human, intentional, and emotionally resonant—never robotic or stitched together carelessly.
+) => `You are a visionary film director and animation supervisor tasked with enriching a machine-generated storyboard into fully specified, renderable scene data for an automated video generator. Your job is to expand each provided scene into shot-by-shot, animation-ready directions that preserve musical synchronization, continuity, and comedic timing.
 
-CONTEXT: Processing BATCH ${context.batchNum} of ${context.totalBatches}
+CONTEXT: BATCH ${context.batchNum} of ${context.totalBatches}
+${context.isFirstBatch ? `MISSION BRIEF (establish visual language and rules):
+- Define the film's visual grammar (camera vocabulary, color palette, lighting motifs, typography style).
+- Create canonical character profiles and location atmospheres.
+- Establish the rhythm of on-screen misheard-lyric text: font, size, entry/exit animation, timing relative to sung words.
+- Define 8s clip grid rules: each enriched scene must indicate how it maps to one or more 8s clips with exact offsets.
+` : `MISSION BRIEF (continue & maintain consistency):
+- Follow the established visual grammar, character looks, and lighting rules exactly.
+- Maintain continuity of props, wardrobe, and geography across batches.`}
 
-${context.isFirstBatch ?
-    `YOUR PRIMARY MISSION:
-Transform the provided creative prompt and musical analysis into a complete cinematic storyboard that synchronizes visual storytelling with the music's emotional architecture.
+FOR EACH PROVIDED SCENE (preserve exact startTime and endTime)
+1) Scene Header (keep as provided): id, startTime, endTime, duration, locationId, charactersPresent
+2) Expand into shots[] so that sum(shot.duration) === scene.duration (no gaps, no overlap):
+   - For each shot produce:
+     - id
+     - startOffset (seconds from scene.startTime)
+     - duration (must be one of allowed granular durations that fit final 8s clip grid)
+     - shotType (close_up, medium, wide, insert, cutaway, over_the_shoulder)
+     - cameraMovement (static, pan_left, push_in, whip_pan, handheld_stable, dolly_out, crane_up)
+     - framingNotes (composition rules, subject placement)
+     - blocking (precise actions and beats timed to lyric words)
+     - lightingInstructions (motivated practicals, color temperature, shadows)
+     - animationInstructions (if animationType != live_action): frame_rate_hint, key_poses, tween_style, loop_points
+     - VFXHints (if any): tracking points, plate matching, masking needs
+     - onScreenTextInstructions: exact text, showStartOffset, showEndOffset, animationStyle (typewriter, slide_up, pop, dissolve), syncToWordIndices
+     - comedicTimingCue: describe the micro-timing that yields the gag (e.g., "pause 0.15s before line to let trombone stinger land")
+     - continuityFlags: props to persist, must-match clothing, blood/wetness, etc.
 
-You're establishing:
-- The visual language of this film
-- Character personalities and arcs
-- Location atmospheres and symbolic meaning
-- The emotional through-line from first frame to last` :
-    `YOUR CONTINUATION MISSION:
-Maintain absolute consistency with established visual language, characters, and narrative momentum while advancing the story through this segment.`}
+3) AnimationSpec Expansion
+   - For every animationSpec from the seed, produce:
+     - frame_by_frame keyframes summary (5–8 keyframes max) describing the main visual beats
+     - assetKeywords for generator (nouns, adjective modifiers, camera adjectives)
+     - puppet/character rig notes (if 2D/3D)
+     - lipSyncStrategy: phoneme mapping or timeline references to word_timestamps
+     - backgroundLoop guidance and parallax layers
+     - recommended renderResolution and safeActionBox for text and faces
 
-CINEMATIC PHILOSOPHY - THE HUMAN TOUCH:
+4) 8-SECOND CLIP GRID MAPPING
+   - Output clipMapping for the scene: list of clip objects each with:
+     - clipIndex (global seq int), clipStartAbsolute (seconds), clipEndAbsolute (seconds), clipStartOffsetInScene
+     - clipRenderHints: should this clip be rendered as single shot or stitched from sub-shots? (prefer single-shot per 8s for simplicity)
+   - Ensure each 8s clip is self-contained visually but honors cross-clip continuity notes
 
-**1. EMOTIONAL AUTHENTICITY**
-Characters aren't props—they're living, breathing humans with inner lives.
-- Subtle emotional shifts: A character's eyes reveal fear before their body language does
-- Micro-expressions: A slight downturn of the mouth, a momentary tension in the shoulders
-- Emotional memory: Previous scenes affect current behavior (trauma lingers, joy radiates)
-- Motivation visibility: Every action has a reason; viewers should sense it even if unstated
+5) Metadata & Production Summary (for the batch)
+   - metadata: title, duration, totalScenes, style (e.g., "low-fi parody / cel-shaded 2D / found-footage hybrid"), mood, colorPalette (hex list), tags, keyMoments (timestamps)
+   - characters: produce EVERY character profile (id, name, aliases, description, physicalTraits {hair, clothing, accessories, distinctiveFeatures}, appearanceNotes)
+   - locations: produce EVERY location profile (id, name, description, lightingConditions, timeOfDay)
+   - assetsIndex: aggregate assetsNeeded across all scenes with priority flags and estimated complexity (low/med/high)
 
-**2. VISUAL STORYTELLING MASTERY**
-Every frame is intentional. Every shot choice has meaning.
-- Shot composition reveals power dynamics (low angle = dominance, high angle = vulnerability)
-- Camera movement reflects emotional state (steady = stable, handheld = chaotic/intimate)
-- Lighting is mood incarnate (harsh shadows = conflict, soft light = tenderness)
-- Color temperature guides emotion (cool blues = isolation, warm golds = connection)
+PRODUCTION QUALITY & COMEDY RULES
+- Keep visuals intentionally amateurish when requested (use jitter, fake jump cuts, VHS grain), but never sloppy in continuity.
+- Comedy arises from precise timing—specify exact frame or fraction-of-second timing where laughs should land.
+- Respect inclusive casting; avoid stereotypical or demeaning caricatures. For intimate or potentially sensitive gags (kissing, mock-alcohol, violence), include consent/age-safety mitigations and propose safe alternates (puppets, exaggerated props).
+- Typography: provide a single typography system for the whole video (font family, weight, baseline, entrance timing relative to sung syllables).
+- Safety: flag any potentially problematic content and provide at least two alternate visual gag solutions.
 
-**3. SPATIAL & TEMPORAL CONTINUITY**
-The world must feel real and consistent.
-- Geography: If a character exits frame-right, they enter the next shot from frame-left
-- Lighting logic: Sunlight positions stay consistent unless time passes
-- Props & costumes: A torn sleeve stays torn; a worn jacket stays worn
-- Physical consequences: Rain-soaked characters don't dry instantly; exhaustion shows in posture
+DELIVERABLE FORMAT (CRITICAL)
+Return JSON exactly matching the supplied schema. Required top-level fields:
+- metadata
+- characters
+- locations
+- scenes (each enriched with shots[], animationSpecDetailed, clipMapping, continuityNotes)
+- assetsIndex
 
-**4. NARRATIVE COHESION ACROSS TIME**
-Whether 1 minute or 9 minutes, the story must feel complete.
-- Clear beginning: Establish world, characters, stakes
-- Escalating middle: Raise tension, complicate relationships, deepen conflict
-- Satisfying ending: Resolve or meaningfully conclude emotional arcs
-- Pacing rhythm: Match story beats to musical phrases (climax with climax, rest with rest)
+SCHEMA COMPLIANCE: ${JSON.stringify(schema, null, 2)}
 
-**5. PRODUCTION QUALITY STANDARDS**
-This is cinema, not content.
-- Camera work: Stable when intentional, dynamic when emotionally justified
-- Lighting: Motivated sources (windows, practicals, natural light), professional color grading
-- Composition: Rule of thirds, leading lines, depth through foreground/background elements
-- Blocking: Characters move with purpose, not randomly
-- Wardrobe continuity: Specific garments, colors, accessories remain consistent
+Do not provide extraneous explanation—return only JSON matching the schema and completeness rules above.`;
 
-**6. TRANSITION ARTISTRY**
-Transitions are storytelling, not technical necessities.
 
-SMOOTH TRANSITIONS (Dissolve, Fade, Cross Fade, Wipe):
-- Use when: Time passes, location changes gradually, mood softens or deepens
-- Effect: Contemplative, nostalgic, dreamlike, organic flow
-- Musical cue: Smooth melodic transitions, sustained notes, gentle tempo shifts
-
-SUDDEN TRANSITIONS (Hard Cut, Smash Cut, Jump Cut):
-- Use when: Shock reveals, parallel action, dramatic perspective shifts, high energy
-- Effect: Jarring (intentionally), urgent, raw, visceral
-- Musical cue: Sudden stops, aggressive downbeats, tempo spikes, rhythmic breaks
-
-CRITICAL: Transitions affect the ENTIRE FRAME as a unified layer.
-- DO NOT transition "just the background" while characters remain static
-- DO NOT transition "just the characters" while environment stays frozen
-- Everything in frame—people, props, environment, lighting—transitions together as a cohesive reality
-
-**7. MUSICAL SYNCHRONIZATION**
-The music is your co-director.
-- Match visual intensity to musical intensity (aggressive music = dynamic visuals)
-- Align cuts to musical phrases (don't cut mid-word, mid-riff unless intentional disruption)
-- Lyrical sections: Characters, dialogue, close-ups, emotional beats
-- Instrumental sections: Establishing shots, action, atmosphere, visual poetry
-- Climactic moments: Peak visual drama aligned with musical climax
-
-SCHEMA COMPLIANCE (CRITICAL):
-You MUST populate ALL non-optional fields in the schema. Missing fields will break the pipeline.
-
-Required structures:
-- **metadata**: title, duration, totalScenes, style, mood, colorPalette, tags, keyMoments
-- **characters**: Extract EVERY character from creative prompt with complete physicalTraits
-  - id, name, aliases, description, physicalTraits{hair, clothing, accessories, distinctiveFeatures}, appearanceNotes
-- **locations**: Extract EVERY location with atmospheric details
-  - id, name, description, lightingConditions, timeOfDay
-- **scenes**: Enrich EVERY provided scene (preserve timings exactly)
-  - id, startTime, endTime, duration, shotType, description, cameraMovement, lighting, mood, audioSync, continuityNotes, charactersPresent, locationId
-  - Keep musicDescription, musicalChange, musicalIntensity, musicalMood, musicalTempo, transitionType AS-IS
-
-INSTRUMENTAL SECTION GUIDANCE:
-For scenes marked "[Instrumental]" or with placeholder descriptions:
-- Create rich visual storytelling that bridges narrative gaps
-- Use environment to reflect mood (weather, lighting, setting details)
-- Show character reactions, internal states, or physical actions
-- Build atmosphere that supports the music's emotional intent
-
-CHARACTER EXTRACTION RULES:
-Parse the creative prompt for ALL human/creature entities:
-- Named characters: Extract exact names and physical descriptions
-- Unnamed characters: Assign descriptive names ("The Woman", "First Guard")
-- Groups: Define key individuals within groups ("Lead Expeditioner", "Caravan Guide")
-
-LOCATION EXTRACTION RULES:
-Identify ALL distinct settings:
-- Major locations: "Ancient Egyptian Tomb", "Desert Dunes"
-- Sub-locations: "Tomb Entrance", "Hall of the King", "Inner Labyrinth"
-- Each needs vivid sensory description (sights, sounds implied, atmosphere)
-
-VISUAL LANGUAGE CONSISTENCY:
-- Shot vocabulary: Establish a visual grammar (handheld for chaos, locked-off for control)
-- Color story: Consistent palette that evolves with emotional arc
-- Lighting motif: Consistent light quality (hard/soft) matching tone
-
-Return JSON exactly matching this schema: ${JSON.stringify(schema, null, 2)}`;

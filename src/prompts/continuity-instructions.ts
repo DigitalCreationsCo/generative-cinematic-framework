@@ -84,6 +84,9 @@ TECHNICAL SPECIFICATIONS:
 - Mood: ${scene.mood}
 - Audio Sync: ${scene.audioSync}${musicalContext}${transitionGuidance}
 
+MISHEARD LYRICS:
+${scene.lyrics}
+
 CHARACTER SPECIFICATIONS (EXACT MATCH REQUIRED):
 ${characterDetails}
 

@@ -1,15 +1,4 @@
-export const defaultCreativePrompt = `
-Create a full-length music video featuring narrative shots interlaced with a live musical performance.
-Dynamically switch between cinematic shots and musical performance shots.
-
-Narrative:
-A man and a woman in their 20s having an intimate, vulnerable breakup conversation. Through the conversation, they experience a range of emotions, including sadness, hope, laughter, and understanding. Rainy night scene on a suburban street. Cinematic lighting with reflections on wet pavement. Close-up shots capturing their facial expressions and emotions. Shallow depth of field.
-
-Musical performance:
-The man from the narrative scene performs on a 30 foot stage in a dimly lit bar, sitting on a high stool, steadily strumming an acoustic guitar in perfect sync with the music. Brick wall backdrop. Modest stage lights. Microphone on a stand in front of him. The microphone is at eye level. He is not singing.
-`
-
-
+export const defaultCreativePrompt = `create a misheard lyrics video about this song`;
 
 export const defaultCreativePrompt2 = `
 ========================================
