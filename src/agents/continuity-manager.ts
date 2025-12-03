@@ -1,4 +1,8 @@
 import {
+    retryLlmCall,
+    RetryConfig,
+} from "../lib/llm-retry";
+import {
     Character,
     Scene,
     Location,
@@ -87,18 +91,24 @@ export class ContinuityManagerAgent {
             try {
                 const outputMimeType = "image/png";
 
-                const result = await this.imageModel.generateContent({
-                    model: "gemini-3-pro-image-preview",
-                    contents: [ imagePrompt ],
-                    config: {
-                        candidateCount: 1,
-                        responseModalities: [ Modality.IMAGE ],
-                        seed: Math.floor(Math.random() * 1000000),
-                        imageConfig: {
-                            outputMimeType: outputMimeType
+                const result = await retryLlmCall(
+                    this.imageModel.generateContent.bind(this.imageModel),
+                    {
+                        model: "gemini-3-pro-image-preview",
+                        contents: [ imagePrompt ],
+                        config: {
+                            candidateCount: 1,
+                            responseModalities: [ Modality.IMAGE ],
+                            seed: Math.floor(Math.random() * 1000000),
+                            imageConfig: {
+                                outputMimeType: outputMimeType
+                            }
                         }
+                    },
+                    {
+                        initialDelay: this.ASSET_GEN_COOLDOWN_MS,
                     }
-                });
+                );
 
                 if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
                     throw new Error("Image generation failed to return any images.");
@@ -131,9 +141,6 @@ export class ContinuityManagerAgent {
                     ...character,
                     referenceImageUrls: [],
                 });
-            } finally {
-                console.log(`   ... waiting ${this.ASSET_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
-                await new Promise(resolve => setTimeout(resolve, this.ASSET_GEN_COOLDOWN_MS));
             }
         }
         return updatedCharacters;
@@ -154,18 +161,24 @@ export class ContinuityManagerAgent {
             try {
                 const outputMimeType = "image/png";
 
-                const result = await this.imageModel.generateContent({
-                    model: "gemini-3-pro-image-preview",
-                    contents: [ imagePrompt ],
-                    config: {
-                        candidateCount: 1,
-                        responseModalities: [ Modality.IMAGE ],
-                        seed: Math.floor(Math.random() * 1000000),
-                        imageConfig: {
-                            outputMimeType: outputMimeType
+                const result = await retryLlmCall(
+                    this.imageModel.generateContent.bind(this.imageModel),
+                    {
+                        model: "gemini-3-pro-image-preview",
+                        contents: [ imagePrompt ],
+                        config: {
+                            candidateCount: 1,
+                            responseModalities: [ Modality.IMAGE ],
+                            seed: Math.floor(Math.random() * 1000000),
+                            imageConfig: {
+                                outputMimeType: outputMimeType
+                            }
                         }
+                    },
+                    {
+                        initialDelay: this.ASSET_GEN_COOLDOWN_MS,
                     }
-                });
+                );
 
                 if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
                     throw new Error("Image generation failed to return any images.");
@@ -198,9 +211,6 @@ export class ContinuityManagerAgent {
                     ...location,
                     referenceImageUrls: [],
                 });
-            } finally {
-                console.log(`   ... waiting ${this.ASSET_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
-                await new Promise(resolve => setTimeout(resolve, this.ASSET_GEN_COOLDOWN_MS));
             }
         }
         return updatedLocations;

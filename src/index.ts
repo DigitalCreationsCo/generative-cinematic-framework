@@ -53,16 +53,11 @@ class CinematicVideoWorkflow {
     location: string = "us-east1",
   ) {
 
-    const llm = new GoogleGenAI({
-      vertexai: true,
-      project: projectId
-    });
-
     this.projectId = projectId;
     this.videoId = videoId;
     this.storageManager = new GCPStorageManager(projectId, videoId, bucketName);
 
-    const llmWrapper = new LlmWrapper(new GoogleProvider(llm, llm));
+    const llmWrapper = new LlmWrapper(new GoogleProvider(projectId));
 
     this.audioProcessingAgent = new AudioProcessingAgent(llmWrapper, this.storageManager);
     this.compositionalAgent = new CompositionalAgent(llmWrapper, this.storageManager);
@@ -101,7 +96,7 @@ class CinematicVideoWorkflow {
         console.log("   Resuming workflow from process_scene...");
         return "process_scene";
       }
-      // Check if audio is provided
+
       if (state.hasAudio) {
         return "create_timed_scenes_from_audio";
       } else {
@@ -430,6 +425,7 @@ class CinematicVideoWorkflow {
         };
     } catch (error) {
         console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
+        console.error('Error: ', error);
         if (!creativePrompt) {
             throw new Error("Cannot start new workflow without creativePrompt.");
         }

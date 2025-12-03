@@ -1,12 +1,7 @@
 export const defaultCreativePrompt = `
-Create a full-length music video featuring narrative shots interlaced with a live musical performance.
-Dynamically switch between cinematic shots and musical performance shots.
+A surfing content between 5 contestants at a California beach. Each contestant is a different age and has a unique surfing style.
 
-Narrative:
-A man and a woman in their 20s having an intimate, vulnerable breakup conversation. Through the conversation, they experience a range of emotions, including sadness, hope, laughter, and understanding. Rainy night scene on a suburban street. Cinematic lighting with reflections on wet pavement. Close-up shots capturing their facial expressions and emotions. Shallow depth of field.
-
-Musical performance:
-The man from the narrative scene performs on a 30 foot stage in a dimly lit bar, sitting on a high stool, steadily strumming an acoustic guitar in perfect sync with the music. Brick wall backdrop. Modest stage lights. Microphone on a stand in front of him. The microphone is at eye level. He is not singing.
+One by one, the riders fall during the contest until the last rider is left standing. Sunny day. Occassional shots of the excited contest announcers and the crowd. Sense of peril, excitement, and triumph.
 `
 
 

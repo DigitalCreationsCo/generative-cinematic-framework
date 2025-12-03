@@ -1,6 +1,7 @@
 import { PersonGeneration, Video, Image, VideoGenerationReferenceType, Operation, GenerateVideosResponse } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Character, GeneratedScene, QualityEvaluation, Scene, SceneGenerationResult } from "../types";
+import { RAIError } from "../lib/errors";
 import ffmpeg from "fluent-ffmpeg";
 import { buildVideoGenerationParams, buildllmParams } from "../llm/google/llm-params";
 import fs from "fs";
@@ -204,10 +205,9 @@ export class SceneGeneratorAgent {
                 backoffFactor: 2
             },
             async (error: any, attempt: number, currentPrompt: string) => {
-                const errorMessage = JSON.stringify(error);
-                if (errorMessage.includes("29310472") || errorMessage.includes("violate") || errorMessage.includes("safety")) {
+                if (error instanceof RAIError) {
                     console.warn(`   ⚠️ Safety error${attemptLabel}. Sanitizing...`);
-                    return await this.sanitizePrompt(currentPrompt, errorMessage);
+                    return await this.sanitizePrompt(currentPrompt, error.message);
                 }
             }
         );
@@ -251,8 +251,11 @@ export class SceneGeneratorAgent {
                 lastFrameUrl,
             };
         } catch (error) {
+            if (error instanceof RAIError) {
+                throw error;
+            }
             console.error(`   ✗ Failed to generate scene ${scene.id}:`, error);
-            throw error; 
+            throw error;
         }
     }
 
@@ -393,8 +396,17 @@ export class SceneGeneratorAgent {
             throw operation.error; 
         }
 
+        if (operation.response?.raiMediaFilteredCount && operation.response?.raiMediaFilteredCount > 0) {
+            if (operation.response.raiMediaFilteredReasons && operation.response.raiMediaFilteredReasons.length > 0) {
+                console.error('RAI Media Filtered: ', JSON.stringify(operation.response, null, 2));
+                const raiErrors = operation.response.raiMediaFilteredReasons.reduce((acc, curr) => acc.concat(`${curr}. `), "")
+                throw new RAIError(raiErrors);
+            }
+            throw new RAIError("Video generation violated AI usage guidelines");
+        }
         const generatedVideos = operation.response?.generatedVideos;
         if (!generatedVideos || generatedVideos.length === 0 || !generatedVideos[ 0 ].video?.videoBytes) {
+            console.log("Operation completed but no video data returned. operation: ", JSON.stringify(operation, null, 2));
             throw new Error("Operation completed but no video data returned.");
         }
 

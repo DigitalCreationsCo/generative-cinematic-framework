@@ -5,9 +5,14 @@ export class GoogleProvider implements LlmProvider {
     private llm: GoogleGenAI;
     private videoModel: GoogleGenAI;
 
-    constructor(llm: GoogleGenAI, videoModel: GoogleGenAI) {
+    constructor(projectId: string) {
+        const llm = new GoogleGenAI({
+            vertexai: true,
+            project: projectId,
+            location: "global"
+        });
         this.llm = llm;
-        this.videoModel = videoModel;
+        this.videoModel = llm;
     }
 
     async generateContent(params: GenerateContentParameters): Promise<GenerateContentResponse> {
