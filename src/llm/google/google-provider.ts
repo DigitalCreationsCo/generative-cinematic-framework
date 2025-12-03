@@ -2,7 +2,7 @@ import { GoogleGenAI, GenerateContentParameters, Operation, GenerateContentRespo
 import { LlmProvider } from "../types";
 
 export class GoogleProvider implements LlmProvider {
-    private llm: GoogleGenAI;
+    public llm: GoogleGenAI;
     private videoModel: GoogleGenAI;
 
     constructor(projectId: string) {

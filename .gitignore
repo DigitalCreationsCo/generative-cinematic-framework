@@ -1,5 +1,13 @@
 dist/
+
 node_modules/
+
 .env
+
 cinem-480022-985f89028a64.json
+
 tsconfig.tsbuildinfo
+
+latest_attempts.json
+
+coverage/

@@ -5,12 +5,12 @@ import { formatCharacterSpecs } from "../utils";
    * Build comprehensive evaluation prompt
    */
 export const buildEvaluationPrompt = (
-      scene: Scene,
-      videoUrl: string,
-      enhancedPrompt: string,
-      characters: Character[],
-      previousScene ?: Scene
-  ): string  => `You are a professional video quality control specialist for a cinema production. Evaluate this generated scene against the production requirements.
+  scene: Scene,
+  videoUrl: string,
+  enhancedPrompt: string,
+  characters: Character[],
+  previousScene?: Scene
+): string => `You are a professional video quality control specialist for a cinema production. Evaluate this generated scene against the production requirements.
 
 ========================================
 SCENE SPECIFICATIONS
@@ -150,6 +150,7 @@ Reasoning: "Generic 'talking' doesn't convey the weight. Specific emotional and 
 **Issue: Poor lighting**
 Original: "Night scene"
 Corrected: "2:17 AM, warm amber streetlights creating pools of light every 30 feet, harsh shadows from overhead sources, faces half-lit in chiaroscuro style"
+OUTPUT FORMAT
 Reasoning: "Time specificity and motivated light sources create professional cinematic lighting."
 
 **Issue: Spatial discontinuity**
@@ -157,6 +158,18 @@ Original: "They stand talking"
 Corrected: "They stand 8 feet apart, Elena near the left streetlight, James under the right one, wet pavement between them reflecting their separated positions"
 Reasoning: "Specific spatial positioning maintains geography and adds symbolic distance."
 
+GENERATION RULE SUGGESTION (Optional)
+
+If you identify a fundamental flaw that is likely to recur in future scenes (e.g., inconsistent art style, persistent character distortion, incorrect lighting motifs), suggest a new, globally applicable "Generation Rule" to prevent it. This rule should be a concise, positive instruction.
+
+- DO suggest rules for systemic issues (e.g., "All scenes must maintain a shallow depth of field (f/1.4-f/2.8) to isolate characters.")
+- DO NOT suggest rules for scene-specific content (e.g., "The character should be smiling in this scene.")
+
+Example \`ruleSuggestion\`: "Ensure all characters' facial structures strictly adhere to their reference images, maintaining consistent cheekbones, jawlines, and eye spacing across all scenes."
+
+If no systemic issue is found, omit the \`ruleSuggestion\` field.
+
+OUTPUT FORMAT
 ========================================
 OUTPUT FORMAT
 ========================================
@@ -207,7 +220,8 @@ Return JSON in this exact structure:
       "correctedPromptSection": "string",
       "reasoning": "string"
     }
-  ]
+  ],
+  "ruleSuggestion": "Optional: A new global rule to prevent future systemic issues."
 }
 
 Be thorough but fair. Minor imperfections are acceptable. Focus on issues that significantly impact the viewer experience.`;

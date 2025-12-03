@@ -118,7 +118,7 @@ class CinematicVideoWorkflow {
         creativePrompt: expandedPrompt,
       };
     });
-    
+
     workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
       if (!state.creativePrompt) throw new Error("No creative prompt available");
       console.log("\n📋 PHASE 1a: Creating Timed Scenes from Audio...");
@@ -215,11 +215,11 @@ class CinematicVideoWorkflow {
         `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboard.scenes.length}`
       );
 
-      let lastFrameUrl: string | undefined;
-      const lastFramePath = this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: scene.id });
-      if (await this.storageManager.fileExists(lastFramePath)) {
-        lastFrameUrl = this.storageManager.getGcsUrl(lastFramePath);
-        console.log(`   ... Found last frame for continuity: ${lastFrameUrl}`);
+      let currentSceneLastFrameUrl: string | undefined;
+      const currentSceneLastFramePath = this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: scene.id });
+      if (await this.storageManager.fileExists(currentSceneLastFramePath)) {
+        currentSceneLastFrameUrl = this.storageManager.getGcsUrl(currentSceneLastFramePath);
+        console.log(`   ... Found last frame for continuity: ${currentSceneLastFrameUrl}`);
       }
 
       const sceneVideoPath = this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: scene.id });
@@ -229,7 +229,7 @@ class CinematicVideoWorkflow {
         const generatedScene: Scene = {
           ...scene,
           generatedVideoUrl: this.storageManager.getGcsUrl(sceneVideoPath),
-          lastFrameUrl
+          lastFrameUrl: scene.lastFrameUrl ?? currentSceneLastFrameUrl
         };
 
         const updatedContext = this.continuityAgent.updateContinuityContext(
@@ -246,20 +246,19 @@ class CinematicVideoWorkflow {
         };
       }
 
-      const { enhancedPrompt, characterReferenceUrls, locationReferenceUrls } = await this.continuityAgent.prepareSceneInputs(
-        scene,
-        state.characters,
-        state.locations,
-        state.continuityContext,
-        { characters: state.characters }
-      );
+      const {
+        enhancedPrompt,
+        refinedRules,
+        characterReferenceUrls,
+        locationReferenceUrls
+      } = await this.continuityAgent.prepareAndRefineSceneInputs(scene, state);
 
       const result = await this.sceneAgent.generateSceneWithQualityCheck(
         scene,
         enhancedPrompt,
         state.characters,
         state.continuityContext.previousScene,
-        lastFrameUrl,
+        state.continuityContext.previousScene?.lastFrameUrl,
         characterReferenceUrls,
         locationReferenceUrls
       );
@@ -271,17 +270,25 @@ class CinematicVideoWorkflow {
       console.log(`   ... waiting ${this.SCENE_GEN_COOLDOWN_MS / 1000}s for rate limit reset`);
       await new Promise(resolve => setTimeout(resolve, this.SCENE_GEN_COOLDOWN_MS));
 
+      result.scene.evaluation = result.evaluation ?? undefined;
+
       const updatedContext = this.continuityAgent.updateContinuityContext(
         result.scene,
         state.continuityContext,
         state.characters
       );
 
+      const newGenerationRules = result.evaluation?.ruleSuggestion
+        ? [ ...(state.generationRules || []), result.evaluation.ruleSuggestion ]
+        : state.generationRules;
+
       return {
         ...state,
         generatedScenes: [ ...state.generatedScenes, result.scene ],
         currentSceneIndex: state.currentSceneIndex + 1,
         continuityContext: updatedContext,
+        generationRules: newGenerationRules,
+        refinedRules: refinedRules,
       };
     });
 
@@ -379,77 +386,81 @@ class CinematicVideoWorkflow {
     }
 
     try {
-        console.log("   Checking for existing storyboard...");
-        const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
-        const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
-        console.log("   Found existing storyboard. Resuming workflow.");
+      console.log("   Checking for existing storyboard...");
+      const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
+      const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
+      console.log("   Found existing storyboard. Resuming workflow.");
 
-        const characterPromises = storyboard.characters.map(async (char) => {
-            const charImgPath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
-            if (await this.storageManager.fileExists(charImgPath)) {
-                console.log(`   ... Character image for ${char.name} already exists, skipping.`);
-                const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
-                return { ...char, referenceImageUrls: [ fullGcsUrl ] };
-            }
-          return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
-        });
-
-        const locationPromises = storyboard.locations.map(async (loc) => {
-            const locImgPath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
-            if (await this.storageManager.fileExists(locImgPath)) {
-                console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
-                const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
-                return { ...loc, referenceImageUrls: [ fullGcsUrl ] };
-            }
-          return this.continuityAgent.generateLocationAssets([ loc ]).then(locs => locs[ 0 ]);
-        });
-
-        const characters = await Promise.all(characterPromises);
-        const locations = await Promise.all(locationPromises);
-
-        initialState = {
-            initialPrompt: localAudioPath || '',
-            creativePrompt: creativePrompt || '',
-            hasAudio,
-            storyboard,
-            characters,
-            locations,
-            currentSceneIndex: 0,
-            generatedScenes: [],
-            audioGcsUri,
-            continuityContext: {
-                characters: new Map(),
-                locations: new Map(),
-            },
-            errors: [],
-        };
-    } catch (error) {
-        console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
-        console.error('Error: ', error);
-        if (!creativePrompt) {
-            throw new Error("Cannot start new workflow without creativePrompt.");
+      const characterPromises = storyboard.characters.map(async (char) => {
+        const charImgPath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
+        if (await this.storageManager.fileExists(charImgPath)) {
+          console.log(`   ... Character image for ${char.name} already exists, skipping.`);
+          const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
+          return { ...char, referenceImageUrls: [ fullGcsUrl ] };
         }
+        return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
+      });
 
-        initialState = {
-            initialPrompt: localAudioPath || '',
-            creativePrompt,
-            hasAudio,
-            currentSceneIndex: 0,
-            generatedScenes: [],
-            characters: [],
-            locations: [],
-            audioGcsUri,
-            continuityContext: {
-                characters: new Map(),
-                locations: new Map(),
-            },
-            errors: [],
-        };
+      const locationPromises = storyboard.locations.map(async (loc) => {
+        const locImgPath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
+        if (await this.storageManager.fileExists(locImgPath)) {
+          console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
+          const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
+          return { ...loc, referenceImageUrls: [ fullGcsUrl ] };
+        }
+        return this.continuityAgent.generateLocationAssets([ loc ]).then(locs => locs[ 0 ]);
+      });
+
+      const characters = await Promise.all(characterPromises);
+      const locations = await Promise.all(locationPromises);
+
+      initialState = {
+        initialPrompt: localAudioPath || '',
+        creativePrompt: creativePrompt || '',
+        hasAudio,
+        storyboard,
+        characters,
+        locations,
+        currentSceneIndex: 0,
+        generatedScenes: [],
+        audioGcsUri,
+        continuityContext: {
+          characters: new Map(),
+          locations: new Map(),
+        },
+        errors: [],
+        generationRules: [],
+        refinedRules: [],
+      };
+    } catch (error) {
+      console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
+      console.error('Error: ', error);
+      if (!creativePrompt) {
+        throw new Error("Cannot start new workflow without creativePrompt.");
+      }
+
+      initialState = {
+        initialPrompt: localAudioPath || '',
+        creativePrompt,
+        hasAudio,
+        currentSceneIndex: 0,
+        generatedScenes: [],
+        characters: [],
+        locations: [],
+        audioGcsUri,
+        continuityContext: {
+          characters: new Map(),
+          locations: new Map(),
+        },
+        errors: [],
+        generationRules: [],
+        refinedRules: [],
+      };
     }
 
     const compiledGraph = this.graph.compile();
     const result = await compiledGraph.invoke(initialState, {
-        recursionLimit: 100,
+      recursionLimit: 100,
     });
     return result as GraphState;
   }
@@ -466,12 +477,12 @@ async function main() {
 
   const argv = await yargs(hideBin(process.argv))
     .option('id', {
-      alias: ['resume', 'videoId'],
+      alias: [ 'resume', 'videoId' ],
       type: 'string',
       description: 'Video ID to resume or use',
     })
     .option('audio', {
-      alias: ['file', 'audioPath'],
+      alias: [ 'file', 'audioPath' ],
       type: 'string',
       description: 'Path to local audio file',
     })
@@ -485,7 +496,7 @@ async function main() {
 
   const videoId = argv.id || `video_${Date.now()}`;
   const audioPath = argv.audio ?? LOCAL_AUDIO_PATH ?? undefined;
-  
+
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 
   const creativePrompt = argv.prompt || defaultCreativePrompt;

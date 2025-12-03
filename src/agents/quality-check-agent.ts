@@ -83,7 +83,11 @@ export class QualityCheckAgent {
 
       if (!response.text) throw new Error("No quality evaluation generated from LLM from Quality Check Agent");
 
-      const evaluation = JSON.parse(response.text) as QualityEvaluation;
+      const parsed = JSON.parse(response.text);
+      const evaluation: QualityEvaluation = {
+        ...parsed,
+        ruleSuggestion: parsed.ruleSuggestion,
+      };
       
       const overallScore = this.calculateOverallScore(evaluation.scores);
       evaluation.overall = this.determineOverallRating(overallScore);

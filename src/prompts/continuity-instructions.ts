@@ -103,3 +103,61 @@ This is scene ${scene.id}. It must feel like a natural continuation of the story
 
 Generate a production-ready enhanced prompt for AI video generation that will result in a cinema-quality scene with perfect continuity.`;
 };
+
+export const buildRefineAndEnhancePrompt = (
+    scene: Scene,
+    characters: any[],
+    context: any,
+    generationRules: string[],
+    previousEvaluation: any
+) => {
+    const characterDetails = scene.characters
+        .map((charId) => {
+            const char = characters.find((c) => c.id === charId);
+            if (!char) return "";
+            const state = context.characters.get(charId);
+            return `- ${char.name}: ${char.description}. Hair: ${state?.currentAppearance.hair || char.physicalTraits.hair}, Clothing: ${state?.currentAppearance.clothing || char.physicalTraits.clothing}`;
+        })
+        .join("\n");
+
+    const prompt = `You are a film director AI assistant. Perform three tasks in order:
+1.  **Refine Rules**: Review the 'Raw Generation Rules' and the 'Previous Scene Feedback'. Synthesize them into a clear, concise, and non-contradictory set of 'Refined Rules'. Consolidate duplicates, generalize specific feedback, and resolve conflicts.
+2.  **Enhance Scene Prompt**: Create a detailed, production-ready 'Enhanced Prompt' for the current scene based on its specifications and continuity context.
+3.  **Combine**: Prepend the 'Refined Rules' to the 'Enhanced Prompt'.
+
+**Current Scene Specifications:**
+- Scene ID: ${scene.id}
+- Description: ${scene.description}
+- Shot Type: ${scene.shotType}
+- Camera: ${scene.cameraMovement}
+- Lighting: ${scene.lighting}
+- Characters:
+${characterDetails}
+
+**Continuity Context from Previous Scene:**
+${context.previousScene ? `- Description: ${context.previousScene.description}\n- Last frame available.` : "This is the first scene."}
+
+**Raw Generation Rules (to be refined):**
+${generationRules.length > 0 ? generationRules.map(r => `- ${r}`).join('\n') : "No raw rules yet."}
+
+**Previous Scene Feedback (to inform refinement):**
+${previousEvaluation ? `- Issues: ${previousEvaluation.issues.map((i: any) => i.description).join(', ')}\n- New Suggestion: ${previousEvaluation.ruleSuggestion || "None"}` : "No feedback from previous scene."}
+
+Output a single JSON object with this exact structure:
+{
+  "refinedRules": [
+    "string"
+  ],
+  "enhancedPrompt": "string"
+}`;
+
+    const parser = (jsonString: string) => {
+        const parsed = JSON.parse(jsonString);
+        return {
+            refinedRules: parsed.refinedRules as string[],
+            enhancedPrompt: parsed.enhancedPrompt as string,
+        };
+    };
+
+    return { prompt, parser };
+};

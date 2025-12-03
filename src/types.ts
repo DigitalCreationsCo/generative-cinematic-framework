@@ -114,6 +114,7 @@ export const SceneSchema = z.intersection(
     enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation with continuity details"),
     generatedVideoUrl: z.string().optional().describe("GCS URL of the generated video"),
     lastFrameUrl: z.string().optional().describe("GCS URL of the last frame extracted from video"),
+    evaluation: z.lazy(() => QualityEvaluationSchema).optional().describe("Quality evaluation result for the scene"),
   }));
 export type Scene = z.infer<typeof SceneSchema>;
 
@@ -172,6 +173,8 @@ export const GraphStateSchema = z.object({
   continuityContext: ContinuityContextSchema.describe("tracking state for continuity across scenes"),
   renderedVideoUrl: z.string().optional().describe("GCS URL of final stitched video"),
   errors: z.array(z.string()).describe("list of errors encountered during workflow"),
+  generationRules: z.array(z.string()).optional().describe("raw, unfiltered list of generation rule suggestions"),
+  refinedRules: z.array(z.string()).optional().describe("consolidated, actionable list of generation rules"),
 });
 export type GraphState = z.infer<typeof GraphStateSchema>;
 
@@ -205,7 +208,7 @@ export type GeneratedScene = Scene & {
   enhancedPrompt: string;
   generatedVideoUrl: string;
   lastFrameUrl?: string | undefined;
-}
+};
 
 export interface SceneGenerationResult {
   scene: GeneratedScene;
@@ -300,40 +303,45 @@ export type CameraMovement = typeof CAMERA_MOVEMENTS[ number ];
 // QUALITY EVALUATION SCHEMAS
 // ============================================================================
 
-export interface QualityEvaluation {
-  overall: "ACCEPT" | "ACCEPT_WITH_NOTES" | "REGENERATE_MINOR" | "REGENERATE_MAJOR" | "FAIL";
-  scores: {
-    narrativeFidelity: QualityScore;
-    characterConsistency: QualityScore;
-    technicalQuality: QualityScore;
-    emotionalAuthenticity: QualityScore;
-    continuity: QualityScore;
-  };
-  issues: QualityIssue[];
-  feedback: string;
-  promptCorrections?: PromptCorrection[];
-}
+export const QualityScoreSchema = z.object({
+  rating: z.enum([ "PASS", "MINOR_ISSUES", "MAJOR_ISSUES", "FAIL" ]),
+  weight: z.number(),
+  details: z.string(),
+});
+export type QualityScore = z.infer<typeof QualityScoreSchema>;
 
-export interface QualityScore {
-  rating: "PASS" | "MINOR_ISSUES" | "MAJOR_ISSUES" | "FAIL";
-  weight: number; // Percentage weight in overall score
-  details: string;
-}
+export const QualityIssueSchema = z.object({
+  category: z.string(),
+  severity: z.enum([ "critical", "major", "minor" ]),
+  description: z.string(),
+  videoTimestamp: z.string().optional(),
+  suggestedFix: z.string(),
+});
+export type QualityIssue = z.infer<typeof QualityIssueSchema>;
 
-export interface QualityIssue {
-  category: string;
-  severity: "critical" | "major" | "minor";
-  description: string;
-  videoTimestamp?: string;
-  suggestedFix: string;
-}
+export const PromptCorrectionSchema = z.object({
+  issueType: z.string(),
+  originalPromptSection: z.string(),
+  correctedPromptSection: z.string(),
+  reasoning: z.string(),
+});
+export type PromptCorrection = z.infer<typeof PromptCorrectionSchema>;
 
-export interface PromptCorrection {
-  issueType: string;
-  originalPromptSection: string;
-  correctedPromptSection: string;
-  reasoning: string;
-}
+export const QualityEvaluationSchema = z.object({
+  overall: z.enum([ "ACCEPT", "ACCEPT_WITH_NOTES", "REGENERATE_MINOR", "REGENERATE_MAJOR", "FAIL" ]),
+  scores: z.object({
+    narrativeFidelity: QualityScoreSchema,
+    characterConsistency: QualityScoreSchema,
+    technicalQuality: QualityScoreSchema,
+    emotionalAuthenticity: QualityScoreSchema,
+    continuity: QualityScoreSchema,
+  }),
+  issues: z.array(QualityIssueSchema),
+  feedback: z.string(),
+  promptCorrections: z.array(PromptCorrectionSchema).optional(),
+  ruleSuggestion: z.string().optional(),
+});
+export type QualityEvaluation = z.infer<typeof QualityEvaluationSchema>;
 
 export interface QualityConfig {
   enabled: boolean;

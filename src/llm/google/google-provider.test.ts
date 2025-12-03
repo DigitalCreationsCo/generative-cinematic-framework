@@ -1,19 +1,42 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GoogleProvider } from './google-provider';
 import { GoogleGenAI } from '@google/genai';
 
-describe('GoogleProvider', () => {
-    it('should proxy generateContent calls to the underlying model', async () => {
-        const mockGenerateContent = vi.fn().mockResolvedValue('content');
-        const mockGoogleGenAI = {
-            models: {
+// Mock the entire @google/genai module
+const mockGenerateContent = vi.fn();
+const mockGenerateVideos = vi.fn();
+const mockGenerateImages = vi.fn();
+const mockGetVideosOperation = vi.fn();
+
+vi.mock('@google/genai', () => {
+    return {
+        GoogleGenAI: class {
+            models = {
                 generateContent: mockGenerateContent,
-            },
-        } as unknown as GoogleGenAI;
+                generateVideos: mockGenerateVideos,
+                generateImages: mockGenerateImages,
+            };
+            operations = {
+                getVideosOperation: mockGetVideosOperation,
+            };
+        },
+        // Export other necessary types/enums as needed by the actual code if they are used as values
+        // For types used only as types, no need to export here.
+    };
+});
 
-        const provider = new GoogleProvider(mockGoogleGenAI, mockGoogleGenAI);
+describe('GoogleProvider', () => {
+    let provider: GoogleProvider;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        provider = new GoogleProvider('test-project');
+    });
+
+    it('should proxy generateContent calls to the underlying model', async () => {
+        mockGenerateContent.mockResolvedValue('content');
+
         const params = { model: 'test-model', contents: [] };
-
         const result = await provider.generateContent(params);
 
         expect(result).toBe('content');
@@ -21,16 +44,9 @@ describe('GoogleProvider', () => {
     });
 
     it('should proxy generateVideos calls to the underlying model', async () => {
-        const mockGenerateVideos = vi.fn().mockResolvedValue('videos');
-        const mockGoogleGenAI = {
-            models: {
-                generateVideos: mockGenerateVideos,
-            },
-        } as unknown as GoogleGenAI;
+        mockGenerateVideos.mockResolvedValue('videos');
 
-        const provider = new GoogleProvider(mockGoogleGenAI, mockGoogleGenAI);
         const params = { model: 'test-model', prompt: 'test' };
-
         const result = await provider.generateVideos(params);
 
         expect(result).toBe('videos');
@@ -38,16 +54,9 @@ describe('GoogleProvider', () => {
     });
 
     it('should proxy getVideosOperation calls to the underlying operations', async () => {
-        const mockGetVideosOperation = vi.fn().mockResolvedValue('operation');
-        const mockGoogleGenAI = {
-            operations: {
-                getVideosOperation: mockGetVideosOperation,
-            },
-        } as unknown as GoogleGenAI;
+        mockGetVideosOperation.mockResolvedValue('operation');
 
-        const provider = new GoogleProvider(mockGoogleGenAI, mockGoogleGenAI);
         const params = { operation: { name: 'ops/123' } } as any;
-
         const result = await provider.getVideosOperation(params);
 
         expect(result).toBe('operation');

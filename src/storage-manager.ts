@@ -1,6 +1,7 @@
 
 import { Storage } from "@google-cloud/storage";
 import path from "path";
+import fs from "fs";
 
 export type GcsObjectType =
   | 'storyboard'
@@ -23,6 +24,7 @@ type GcsObjectPathParams =
   | { type: 'scene_last_frame'; sceneId: number; attempt?: number | 'latest'; }
   | { type: 'composite_frame'; sceneId: number; attempt?: number | 'latest'; }
   | { type: 'quality_evaluation'; sceneId: number; attempt?: number | 'latest'; };
+
 // ============================================================================
 // GCP STORAGE MANAGER
 // ============================================================================
@@ -32,11 +34,34 @@ export class GCPStorageManager {
   private bucketName: string;
   private videoId: string;
   private latestAttempts: Map<string, number> = new Map();
+  private persistencePath: string = 'latest_attempts.json';
 
   constructor(projectId: string, videoId: string, bucketName: string) {
     this.storage = new Storage({ projectId });
     this.bucketName = bucketName;
     this.videoId = videoId;
+    this.loadLatestAttempts();
+  }
+
+  private loadLatestAttempts() {
+    try {
+      if (fs.existsSync(this.persistencePath)) {
+        const data = fs.readFileSync(this.persistencePath, 'utf-8');
+        const parsed = JSON.parse(data);
+        this.latestAttempts = new Map(Object.entries(parsed));
+      }
+    } catch (error) {
+      console.warn("Failed to load latest attempts:", error);
+    }
+  }
+
+  private saveLatestAttempts() {
+    try {
+      const obj = Object.fromEntries(this.latestAttempts);
+      fs.writeFileSync(this.persistencePath, JSON.stringify(obj, null, 2));
+    } catch (error) {
+      console.warn("Failed to save latest attempts:", error);
+    }
   }
 
   /**
@@ -48,6 +73,7 @@ export class GCPStorageManager {
     const current = this.latestAttempts.get(key) || 0;
     if (attempt > current) {
       this.latestAttempts.set(key, attempt);
+      this.saveLatestAttempts();
     }
   }
 
@@ -65,13 +91,16 @@ export class GCPStorageManager {
     destination: string
   ): Promise<string> {
     const bucket = this.storage.bucket(this.bucketName);
+    // Ensure destination is a clean relative path
+    const normalizedDest = this.normalizePath(destination);
+    
     await bucket.upload(localPath, {
-      destination,
+      destination: normalizedDest,
       metadata: {
         cacheControl: "public, max-age=31536000",
       },
     });
-    return `gs://${this.bucketName}/${destination}`;
+    return this.getGcsUrl(normalizedDest);
   }
 
   async uploadBuffer(
@@ -80,14 +109,16 @@ export class GCPStorageManager {
     contentType: string
   ): Promise<string> {
     const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(destination);
+    const normalizedDest = this.normalizePath(destination);
+    const file = bucket.file(normalizedDest);
+    
     await file.save(buffer, {
       contentType,
       metadata: {
         cacheControl: "public, max-age=31536000",
       },
     });
-    return `gs://${this.bucketName}/${destination}`;
+    return this.getGcsUrl(normalizedDest);
   }
 
   async uploadJSON(data: any, destination: string): Promise<string> {
@@ -100,7 +131,7 @@ export class GCPStorageManager {
     const destination = `audio/${fileName}`;
     const gcsUri = this.getGcsUrl(destination);
 
-    const exists = await this.fileExists(gcsUri);
+    const exists = await this.fileExists(destination);
     if (exists) {
       console.log(`   ... Audio file already exists at ${gcsUri}, skipping upload.`);
       return gcsUri;
@@ -112,23 +143,29 @@ export class GCPStorageManager {
 
   async downloadJSON<T>(source: string): Promise<T> {
     const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(source);
+    const path = this.parsePathFromUri(source);
+    const file = bucket.file(path);
     const [ contents ] = await file.download();
     return JSON.parse(contents.toString()) as T;
   }
 
-  private parsePathFromUri(uriOrPath: string): string {
-    if (uriOrPath.startsWith("gs://")) {
-      const match = uriOrPath.match(/^gs:\/\/([^\/]+)\/(.+)$/);
-      if (match) {
-        if (match[ 1 ] !== this.bucketName) {
-          throw new Error(`Cannot operate on object in different bucket: ${match[ 1 ]}`);
-        }
-        return match[ 2 ];
-      }
-      throw new Error(`Invalid GCS URI format: ${uriOrPath}`);
+  private normalizePath(inputPath: string): string {
+    // 1. Strip gs:// prefix if present
+    let cleanPath = inputPath.replace(/^gs:\/\/[^\/]+\//, '');
+    
+    // 2. Normalize separators using path.posix (always forward slashes)
+    cleanPath = path.posix.normalize(cleanPath);
+    
+    // 3. Remove leading slash if present (GCS paths shouldn't start with /)
+    if (cleanPath.startsWith('/')) {
+      cleanPath = cleanPath.substring(1);
     }
-    return uriOrPath;
+    
+    return cleanPath;
+  }
+
+  private parsePathFromUri(uriOrPath: string): string {
+    return this.normalizePath(uriOrPath);
   }
 
   async downloadFile(gcsPath: string, localDestination: string): Promise<void> {
@@ -167,67 +204,60 @@ export class GCPStorageManager {
   }
 
   /**
-   * Generates a standardized GCS object URI path based on the project structure.
-   * Structure: video/[projectId]/[type-specific-path]
-   *
-   * @param projectId - The ID of the project.
-   * @param type - The type of object to generate a path for.
-   * @param params - Optional parameters required for specific types (characterId, sceneId).
-   * @returns The full GCS object path.
+   * Generates a standardized relative GCS object path.
+   * Structure: [videoId]/[category]/[filename]
    */
-  getGcsObjectPath(
-    params: GcsObjectPathParams
-  ): string {
-    const basePath = `${this.videoId}`;
+  getGcsObjectPath(params: GcsObjectPathParams): string {
+    const basePath = this.videoId;
 
     switch (params.type) {
       case 'storyboard':
-        return `${basePath}/scenes/storyboard.json`;
+        return path.posix.join(basePath, 'scenes', 'storyboard.json');
 
       case 'character_image':
-        return `${basePath}/images/characters/${params.characterId}_reference.png`;
+        return path.posix.join(basePath, 'images', 'characters', `${params.characterId}_reference.png`);
 
       case 'location_image':
-        return `${basePath}/images/locations/${params.locationId}_reference.png`;
+        return path.posix.join(basePath, 'images', 'locations', `${params.locationId}_reference.png`);
 
       case 'scene_last_frame': {
         const attemptNum = this.resolveAttempt(params.type, params.sceneId, params.attempt);
-        return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_lastframe_${attemptNum.toString().padStart(2, '0')}.jpg`;
+        return path.posix.join(basePath, 'images', 'frames', `scene_${params.sceneId.toString().padStart(3, '0')}_lastframe_${attemptNum.toString().padStart(2, '0')}.png`);
       }
 
       case 'composite_frame': {
         const attemptNum = this.resolveAttempt(params.type, params.sceneId, params.attempt);
-        return `${basePath}/images/frames/scene_${params.sceneId.toString().padStart(3, '0')}_composite_${attemptNum.toString().padStart(2, '0')}.jpg`;
+        return path.posix.join(basePath, 'images', 'frames', `scene_${params.sceneId.toString().padStart(3, '0')}_composite_${attemptNum.toString().padStart(2, '0')}.png`);
       }
 
       case 'scene_video': {
         const attemptNum = this.resolveAttempt(params.type, params.sceneId, params.attempt);
-        return `${basePath}/scenes/scene_${params.sceneId.toString().padStart(3, '0')}_${attemptNum.toString().padStart(2, '0')}.mp4`;
+        return path.posix.join(basePath, 'scenes', `scene_${params.sceneId.toString().padStart(3, '0')}_${attemptNum.toString().padStart(2, '0')}.mp4`);
       }
 
       case 'quality_evaluation': {
         const attemptNum = this.resolveAttempt(params.type, params.sceneId, params.attempt);
-        return `${basePath}/scenes/scene_${params.sceneId.toString().padStart(3, '0')}_evaluation_${attemptNum.toString().padStart(2, '0')}.mp4`;
+        return path.posix.join(basePath, 'scenes', `scene_${params.sceneId.toString().padStart(3, '0')}_evaluation_${attemptNum.toString().padStart(2, '0')}.mp4`);
       }
 
       case 'stitched_video':
-        return `${basePath}/final/movie.mp4`;
+        return path.posix.join(basePath, 'final', 'movie.mp4');
 
       case 'final_output':
-        return `${basePath}/final/final_output.json`;
+        return path.posix.join(basePath, 'final', 'final_output.json');
 
       default:
         throw new Error(`Unknown GCS object type: ${(params as any).type}`);
     }
   }
 
-  getPublicUrl(path: string): string {
-    const normalizedPath = this.parsePathFromUri(path);
+  getPublicUrl(gcsPath: string): string {
+    const normalizedPath = this.normalizePath(gcsPath);
     return `https://storage.googleapis.com/${this.bucketName}/${normalizedPath}`;
   }
 
-  getGcsUrl(path: string): string {
-    const normalizedPath = this.parsePathFromUri(path);
+  getGcsUrl(gcsPath: string): string {
+    const normalizedPath = this.normalizePath(gcsPath);
     return `gs://${this.bucketName}/${normalizedPath}`;
   }
 

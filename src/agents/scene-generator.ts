@@ -43,6 +43,13 @@ export class SceneGeneratorAgent {
         console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
         console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
+        // Proactively sanitize the prompt to prevent common safety filter issues.
+        const sanitizedPrompt = await this.sanitizePrompt(enhancedPrompt);
+        if (sanitizedPrompt !== enhancedPrompt) {
+            console.log(`   🛡️ Prompt proactively sanitized.`);
+            enhancedPrompt = sanitizedPrompt;
+        }
+
         if (!this.qualityAgent.qualityConfig.enabled || !this.qualityAgent) {
             const generated = await this.generateScene(
                 scene,
@@ -259,12 +266,20 @@ export class SceneGeneratorAgent {
         }
     }
 
-    private async sanitizePrompt(originalPrompt: string, errorMessage: string): Promise<string> {
-        console.log("   ⚠️ Safety filter triggered. Sanitizing prompt...");
+    private async sanitizePrompt(originalPrompt: string, errorMessage?: string): Promise<string> {
+        const logMessage = errorMessage
+            ? `   ⚠️ Safety filter triggered. Sanitizing prompt...`
+            : `   🛡️ Proactively sanitizing prompt...`;
+        console.log(logMessage);
+
         try {
-            const prompt = `Rewrite the following video generation prompt to avoid violating AI usage guidelines, including remove any references to real people, celebrities, or public figures. 
+            const instructions = errorMessage
+                ? `Read the error message carefully to understand what triggered the safety filter. Ensure the prompt is safe and will not trigger safety filters.`
+                : `Review the prompt for potential violations of AI safety guidelines. Pay close attention to depictions of celebrities, real people, violence, or other sensitive content.`;
+
+            const prompt = `Rewrite the following video generation prompt to avoid violating AI usage guidelines, including removing any references to real people, celebrities, or public figures. 
             Describe characters using only generic physical attributes (e.g. "a tall man with short hair" instead of "looks like Tom Cruise"). 
-            Read the error message carefully to understand what triggered the safety filter. Ensure the prompt is safe and will not trigger safety filters. 
+            ${instructions}
             Keep the visual style, action, and lighting instructions intact.
             Output ONLY the sanitized prompt text.
             Refer to this list of safety error codes for guidance:
@@ -283,7 +298,7 @@ export class SceneGeneratorAgent {
             - 61493863, 56562880: Violence - Detects violence-related content from the video or text.
             - 32635315:	Vulgar - Detects vulgar topics or content from the text.
             
-            Error message: ${errorMessage}
+            ${errorMessage ? `Error message: ${errorMessage}` : ''}
 
             Original Prompt: ${originalPrompt}
             `;
@@ -314,7 +329,7 @@ export class SceneGeneratorAgent {
         locationReferenceUrls?: string[],
         previousScene?: Scene,
     ): Promise<string> {
-        console.log(`   [Google GenAI] Generating video with prompt: ${prompt.substring(0, 50)}...`);
+        console.log(`   Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
         const outputMimeType = "video/mp4";
         const objectPath = this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: sceneId, attempt });
@@ -426,7 +441,7 @@ export class SceneGeneratorAgent {
         attempt: number
     ): Promise<string> {
         const tempVideoPath = `/tmp/scene_${sceneId}.mp4`;
-        const tempFramePath = `/tmp/scene_${sceneId}_lastframe.jpg`;
+        const tempFramePath = `/tmp/scene_${sceneId}_lastframe.png`;
 
         try {
             await this.storageManager.downloadFile(videoUrl, tempVideoPath);

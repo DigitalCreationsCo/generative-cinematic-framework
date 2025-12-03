@@ -209,8 +209,8 @@ gs://[bucket-name]/[video-id]/
 │   │   ├── loc_1_reference.png
 │   │   └── ...
 │   └── frames/                       # Extracted frames for continuity
-│       ├── scene_001_lastframe.jpg
-│       ├── scene_002_lastframe.jpg
+│       ├── scene_001_lastframe.png
+│       ├── scene_002_lastframe.png
 │       └── ...
 └── final/
     ├── movie.mp4                     # Final stitched video

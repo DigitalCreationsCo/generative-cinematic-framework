@@ -204,8 +204,7 @@ ${userPrompt}
 
 Please expand this into a comprehensive cinematic blueprint following the framework provided.`;
 
-    try {
-
+    const llmCall = async () => {
       const params = buildllmParams({
          contents: [
           { role: "user", parts: [ { text: systemPrompt } ] },
@@ -227,7 +226,10 @@ Please expand this into a comprehensive cinematic blueprint following the framew
       console.log(`✓ Creative prompt expanded: ${userPrompt.substring(0, 50)}... → ${expandedPrompt.length} chars`);
 
       return expandedPrompt;
+    };
 
+    try {
+      return await retryLlmCall(llmCall, undefined, { maxRetries: 3, initialDelay: 1000 });
     } catch (error) {
       console.error("Failed to expand creative prompt:", error);
       // Fallback: return original prompt if expansion fails
@@ -304,7 +306,7 @@ Generate a complete cinematic storyboard for this concept.`;
       return storyboard;
     };
 
-    const storyboard = await retryLlmCall(llmCall, undefined, retryConfig);
+    const storyboard = await retryLlmCall(llmCall, undefined, { maxRetries: 3, initialDelay: 1000, ...retryConfig });
 
     // Save storyboard
     const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });

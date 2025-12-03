@@ -16,8 +16,9 @@ import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
 import { buildCharacterImagePrompt } from "../prompts/character-image-instruction";
 import { buildLocationImagePrompt } from "../prompts/location-image-instruction";
-import { buildSceneContinuityPrompt, continuitySystemPrompt } from "../prompts/continuity-instructions";
+import { buildSceneContinuityPrompt, continuitySystemPrompt, buildRefineAndEnhancePrompt } from "../prompts/continuity-instructions";
 import { LlmWrapper } from "../llm";
+import { GraphState } from "../types";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
@@ -42,39 +43,46 @@ export class ContinuityManagerAgent {
         this.frameComposer = frameComposer;
     }
 
-    async prepareSceneInputs(
+    async prepareAndRefineSceneInputs(
         scene: Scene,
-        characters: Character[],
-        locations: Location[],
-        context: ContinuityContext,
-        castList: CastList
-    ): Promise<{ enhancedPrompt: string; startFrameUrl?: string; characterReferenceUrls?: string[]; locationReferenceUrls?: string[] }> {
-        let startFrameUrl = context.previousScene?.lastFrameUrl;
+        state: GraphState,
+    ): Promise<{ enhancedPrompt: string; refinedRules: string[], startFrameUrl?: string; characterReferenceUrls?: string[]; locationReferenceUrls?: string[]; }> {
+        const { characters, locations, continuityContext, generationRules } = state;
+        const previousEvaluation = state.generatedScenes[ state.generatedScenes.length - 1 ]?.evaluation;
 
-        // Check if any character in the scene requires a composite frame
-        const charactersInScene = castList.characters.filter(char =>
+        const charactersInScene = characters.filter(char =>
             scene.characters.includes(char.id)
         );
+        const characterReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
 
-        let characterReferenceUrls;
-        if (charactersInScene.length > 0 && startFrameUrl) {
-            console.log(`   [ContinuityManager] Character(s) detected in scene ${scene.id}. Generating composite frame...`);
-            characterReferenceUrls = charactersInScene.flatMap(c => c.referenceImageUrls || []);
-        }
-
-        // Get location reference images for the scene
         const locationInScene = locations.find(loc => loc.id === scene.locationId);
-        let locationReferenceUrls;
-        if (locationInScene) {
-            console.log(`   [ContinuityManager] Location detected in scene ${scene.id}: ${locationInScene.name}`);
-            locationReferenceUrls = locationInScene.referenceImageUrls || [];
-        }
+        const locationReferenceUrls = locationInScene?.referenceImageUrls || [];
 
-        const enhancedPrompt = await this.enhanceScenePrompt(scene, characters, context);
+        const { prompt, parser } = buildRefineAndEnhancePrompt(
+            scene,
+            characters,
+            continuityContext,
+            generationRules || [],
+            previousEvaluation
+        );
 
-        return { enhancedPrompt, startFrameUrl, characterReferenceUrls, locationReferenceUrls };
+        const response = await this.llm.generateContent(buildllmParams({
+            contents: [ { role: 'user', parts: [ { text: prompt } ] } ],
+            config: {
+                responseMimeType: "application/json",
+            }
+        }));
+
+        const { refinedRules, enhancedPrompt } = parser(response.text || "");
+
+        return {
+            enhancedPrompt,
+            refinedRules,
+            startFrameUrl: continuityContext.previousScene?.lastFrameUrl,
+            characterReferenceUrls,
+            locationReferenceUrls,
+        };
     }
-
 
     async generateCharacterAssets(
         characters: Character[],
@@ -130,7 +138,7 @@ export class ContinuityManagerAgent {
 
                 updatedCharacters.push({
                     ...character,
-                    referenceImageUrls: [imageUrl],
+                    referenceImageUrls: [ imageUrl ],
                 });
 
                 console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
@@ -200,7 +208,7 @@ export class ContinuityManagerAgent {
 
                 updatedLocations.push({
                     ...location,
-                    referenceImageUrls: [imageUrl],
+                    referenceImageUrls: [ imageUrl ],
                 });
 
                 console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
@@ -248,7 +256,7 @@ export class ContinuityManagerAgent {
     - Camera: ${context.previousScene.cameraMovement}
     - Last frame available at: ${context.previousScene.lastFrameUrl || "N/A"}`
             : "This is the first scene.";
-        
+
         const userPrompt = buildSceneContinuityPrompt(scene, characterDetails, contextInfo);
 
         const response = await this.llm.generateContent(buildllmParams({

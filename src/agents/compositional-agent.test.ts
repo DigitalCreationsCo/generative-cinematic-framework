@@ -5,19 +5,33 @@ import { Storyboard } from '../types';
 import { LlmWrapper, GoogleProvider } from '../llm';
 import { GoogleGenAI } from '@google/genai';
 
+// Mock @google/genai module
+const mockGenerateContent = vi.fn();
+
+vi.mock('@google/genai', () => {
+    return {
+        GoogleGenAI: class {
+            models = {
+                generateContent: mockGenerateContent,
+            };
+        },
+        HarmCategory: { HARM_CATEGORY_UNSPECIFIED: 'HARM_CATEGORY_UNSPECIFIED' },
+        HarmBlockThreshold: { BLOCK_ONLY_HIGH: 'BLOCK_ONLY_HIGH' },
+        HarmBlockMethod: { SEVERITY: 'SEVERITY' },
+        Modality: { TEXT: 'TEXT' },
+    };
+});
+
 describe('CompositionalAgent', () => {
     let compositionalAgent: CompositionalAgent;
     let llm: LlmWrapper;
     let storageManager: GCPStorageManager;
-    let googleGenAI: GoogleGenAI;
 
     beforeEach(() => {
-        googleGenAI = {
-            models: {
-                generateContent: vi.fn(),
-            },
-        } as unknown as GoogleGenAI;
-        const provider = new GoogleProvider(googleGenAI, googleGenAI);
+        vi.clearAllMocks();
+        // GoogleProvider constructor will now use our mocked GoogleGenAI
+        const provider = new GoogleProvider('mock-project-id');
+
         llm = new LlmWrapper(provider);
         storageManager = new GCPStorageManager('project-id', 'video-id', 'bucket-name');
         compositionalAgent = new CompositionalAgent(llm, storageManager);
@@ -66,7 +80,7 @@ describe('CompositionalAgent', () => {
             ],
         };
 
-        vi.spyOn(googleGenAI.models, 'generateContent')
+        mockGenerateContent
             .mockResolvedValueOnce({ text: JSON.stringify(mockInitialContext) } as any)
             .mockResolvedValueOnce({ text: JSON.stringify(mockEnrichedScenes) } as any);
 
@@ -111,7 +125,7 @@ describe('CompositionalAgent', () => {
         };
         const creativePrompt = 'A creative prompt.';
 
-        vi.spyOn(googleGenAI.models, 'generateContent')
+        mockGenerateContent
             .mockResolvedValueOnce({ text: JSON.stringify({ metadata: storyboard.metadata, characters: [], locations: [] }) } as any)
             .mockResolvedValueOnce({ text: JSON.stringify({ scenes: scenes.slice(0, 10) }) } as any)
             .mockResolvedValueOnce({ text: JSON.stringify({ scenes: scenes.slice(10, 15) }) } as any);
@@ -120,7 +134,7 @@ describe('CompositionalAgent', () => {
 
         await compositionalAgent.generateStoryboard(storyboard, creativePrompt);
 
-        expect(googleGenAI.models.generateContent).toHaveBeenCalledTimes(3);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     }, 12000);
 
     it('should handle rate limiting with retries', async () => {
@@ -160,7 +174,7 @@ describe('CompositionalAgent', () => {
             locations: [],
         };
 
-        vi.spyOn(googleGenAI.models, 'generateContent')
+        mockGenerateContent
             .mockRejectedValueOnce({ status: 429 }) // Fail initial context once
             .mockResolvedValueOnce({ text: JSON.stringify(mockInitialContext) } as any) // Succeed initial context
             .mockResolvedValueOnce({ text: JSON.stringify({ scenes: storyboard.scenes }) } as any); // Succeed scene batch
@@ -170,7 +184,7 @@ describe('CompositionalAgent', () => {
 
         await compositionalAgent.generateStoryboard(storyboard, creativePrompt, { maxRetries: 2, initialDelay: 1000 });
 
-        expect(googleGenAI.models.generateContent).toHaveBeenCalledTimes(3);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     }, 30000);
 
     it('should throw an error after max retries', async () => {
@@ -204,30 +218,30 @@ describe('CompositionalAgent', () => {
         };
         const creativePrompt = 'A creative prompt.';
 
-        vi.spyOn(googleGenAI.models, 'generateContent').mockRejectedValue(new Error('LLM call failed after multiple retries.'));
+        mockGenerateContent.mockRejectedValue(new Error('LLM call failed after multiple retries.'));
         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-        await expect(compositionalAgent.generateStoryboard(storyboard, creativePrompt, { maxRetries: 3, initialDelay: 1000 })).rejects.toThrow('LLM call failed after multiple retries.');
-    }, 150000);
+        await expect(compositionalAgent.generateStoryboard(storyboard, creativePrompt, { maxRetries: 3, initialDelay: 10 })).rejects.toThrow('LLM call failed after multiple retries.');
+    }, 15000);
 
     it('should expand creative prompt', async () => {
         const prompt = 'A short prompt';
         const expandedPrompt = 'A longer, more detailed prompt';
 
-        vi.spyOn(googleGenAI.models, 'generateContent').mockResolvedValueOnce({
+        mockGenerateContent.mockResolvedValueOnce({
             text: expandedPrompt,
         } as any);
 
         const result = await compositionalAgent.expandCreativePrompt(prompt);
         expect(result).toBe(expandedPrompt);
-        expect(googleGenAI.models.generateContent).toHaveBeenCalled();
-    });
+        expect(mockGenerateContent).toHaveBeenCalled();
+    }, 150000);
 
     it('should return original prompt if expansion fails', async () => {
         const prompt = 'A short prompt';
-        
-        vi.spyOn(googleGenAI.models, 'generateContent').mockRejectedValueOnce(new Error('Failed'));
+
+        mockGenerateContent.mockRejectedValueOnce(new Error('Failed'));
 
         const result = await compositionalAgent.expandCreativePrompt(prompt);
         expect(result).toBe(prompt);
@@ -236,42 +250,42 @@ describe('CompositionalAgent', () => {
     it('should generate storyboard from prompt', async () => {
         const creativePrompt = 'A creative prompt';
         const mockStoryboard: Storyboard = {
-             metadata: { title: 'Test Storyboard', duration: 8, totalScenes: 1, style: 'cinematic', mood: 'epic', colorPalette: [ '#ffffff' ], tags: [ 'test' ] },
-             characters: [],
-             locations: [],
-             scenes: [
-                 {
-                     id: 1,
-                     startTime: 0,
-                     endTime: 8,
-                     duration: 8,
-                     description: 'Scene 1',
-                     type: 'instrumental',
-                     lyrics: '',
-                     musicChange: 'none',
-                     intensity: 'medium',
-                     mood: 'calm',
-                     tempo: 'moderate',
-                     transitionType: 'smooth',
-                     shotType: 'wide',
-                     cameraMovement: 'static',
-                     lighting: 'natural',
-                     audioSync: 'mood',
-                     continuityNotes: [],
-                     characters: [],
-                     locationId: 'loc_1',
-                 },
-             ],
-         };
+            metadata: { title: 'Test Storyboard', duration: 8, totalScenes: 1, style: 'cinematic', mood: 'epic', colorPalette: [ '#ffffff' ], tags: [ 'test' ] },
+            characters: [],
+            locations: [],
+            scenes: [
+                {
+                    id: 1,
+                    startTime: 0,
+                    endTime: 8,
+                    duration: 8,
+                    description: 'Scene 1',
+                    type: 'instrumental',
+                    lyrics: '',
+                    musicChange: 'none',
+                    intensity: 'medium',
+                    mood: 'calm',
+                    tempo: 'moderate',
+                    transitionType: 'smooth',
+                    shotType: 'wide',
+                    cameraMovement: 'static',
+                    lighting: 'natural',
+                    audioSync: 'mood',
+                    continuityNotes: [],
+                    characters: [],
+                    locationId: 'loc_1',
+                },
+            ],
+        };
 
-         vi.spyOn(googleGenAI.models, 'generateContent').mockResolvedValueOnce({
-             text: JSON.stringify(mockStoryboard),
-         } as any);
-         vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
-         vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
+        mockGenerateContent.mockResolvedValueOnce({
+            text: JSON.stringify(mockStoryboard),
+        } as any);
+        vi.spyOn(storageManager, 'getGcsObjectPath').mockReturnValue('storyboard.json');
+        vi.spyOn(storageManager, 'uploadJSON').mockResolvedValue('gs://bucket-name/storyboard.json');
 
-         const result = await compositionalAgent.generateStoryboardFromPrompt(creativePrompt);
-         expect(result).toEqual(mockStoryboard);
-         expect(storageManager.uploadJSON).toHaveBeenCalled();
+        const result = await compositionalAgent.generateStoryboardFromPrompt(creativePrompt);
+        expect(result).toEqual(mockStoryboard);
+        expect(storageManager.uploadJSON).toHaveBeenCalled();
     });
 });
