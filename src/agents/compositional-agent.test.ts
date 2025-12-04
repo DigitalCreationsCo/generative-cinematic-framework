@@ -29,10 +29,8 @@ describe('CompositionalAgent', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        // GoogleProvider constructor will now use our mocked GoogleGenAI
-        const provider = new GoogleProvider('mock-project-id');
 
-        llm = new LlmWrapper(provider);
+        llm = new LlmWrapper();
         storageManager = new GCPStorageManager('project-id', 'video-id', 'bucket-name');
         compositionalAgent = new CompositionalAgent(llm, storageManager);
     });

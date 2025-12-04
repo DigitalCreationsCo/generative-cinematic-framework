@@ -35,7 +35,7 @@ describe('LLM Parameter Builders', () => {
                 prompt: 'a cat',
             };
             const result = buildImageGenerationParams(params);
-            expect(result.model).toBe('imagen-3.0-generate-002');
+            expect(result.model).toBe('gemini-3-pro-image-preview');
             expect(result.prompt).toBe('a cat');
         });
     });
@@ -46,7 +46,7 @@ describe('LLM Parameter Builders', () => {
                 prompt: 'a dog running',
             };
             const result = buildVideoGenerationParams(params);
-            expect(result.model).toBe('veo-3.1-generate-preview');
+            expect(result.model).toBe('veo-2.0-generate-exp');
             expect(result.prompt).toBe('a dog running');
         });
     });

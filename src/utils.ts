@@ -53,3 +53,49 @@ export function formatCharacterSpecs(characterIds: string[], characters: Charact
       })
       .join("\n\n");
   }
+
+/**
+ * Calculates learning trends using linear regression.
+ * @param metrics - Array of scene generation metrics.
+ * @returns An object with trend analysis.
+ */
+export function calculateLearningTrends(metrics: { attempts: number; finalScore: number }[]): {
+  averageAttempts: number;
+  attemptTrendSlope: number;
+  qualityTrendSlope: number;
+} {
+  const n = metrics.length;
+  if (n < 2) {
+    return {
+      averageAttempts: metrics.reduce((acc, m) => acc + m.attempts, 0) / (n || 1),
+      attemptTrendSlope: 0,
+      qualityTrendSlope: 0,
+    };
+  }
+
+  let sumX = 0, sumY_a = 0, sumY_q = 0, sumXY_a = 0, sumXY_q = 0, sumX2 = 0;
+  
+  for (let i = 0; i < n; i++) {
+    const x = i + 1;
+    const y_a = metrics[i].attempts;
+    const y_q = metrics[i].finalScore;
+
+    sumX += x;
+    sumY_a += y_a;
+    sumY_q += y_q;
+    sumXY_a += x * y_a;
+    sumXY_q += x * y_q;
+    sumX2 += x * x;
+  }
+
+  const avgAttempts = sumY_a / n;
+  
+  const slope_a = (n * sumXY_a - sumX * sumY_a) / (n * sumX2 - sumX * sumX);
+  const slope_q = (n * sumXY_q - sumX * sumY_q) / (n * sumX2 - sumX * sumX);
+
+  return {
+    averageAttempts: avgAttempts,
+    attemptTrendSlope: isNaN(slope_a) ? 0 : slope_a,
+    qualityTrendSlope: isNaN(slope_q) ? 0 : slope_q,
+  };
+}

@@ -18,6 +18,8 @@ import { buildCharacterImagePrompt } from "../prompts/character-image-instructio
 import { buildLocationImagePrompt } from "../prompts/location-image-instruction";
 import { buildRefineAndEnhancePrompt } from "../prompts/continuity-instructions";
 import { LlmWrapper } from "../llm";
+import { imageModelName } from "../llm/google/models";
+import z from "zod";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
@@ -73,18 +75,26 @@ export class ContinuityManagerAgent {
             locations: new Map(locations.map(l => [l.id, l.state || {}]))
         };
 
+        const refinePromptSchema = z.object({
+            "refinedRules": [
+                "string"
+            ],
+            "enhancedPrompt": "string"
+        })
+
         const { prompt, parser } = buildRefineAndEnhancePrompt(
             scene,
             characters,
             continuityContext,
             generationRules,
-            previousEvaluation
+            previousEvaluation,
+            refinePromptSchema
         );
 
         const response = await this.llm.generateContent(buildllmParams({
             contents: [ { role: 'user', parts: [ { text: prompt } ] } ],
             config: {
-                responseMimeType: "application/json",
+                responseJsonSchema: z.toJSONSchema(refinePromptSchema),
             }
         }));
 
@@ -117,7 +127,7 @@ export class ContinuityManagerAgent {
                 const result = await retryLlmCall(
                     this.imageModel.generateContent.bind(this.imageModel),
                     {
-                        model: "gemini-3-pro-image-preview",
+                        model: imageModelName,
                         contents: [ imagePrompt ],
                         config: {
                             candidateCount: 1,
@@ -208,7 +218,7 @@ export class ContinuityManagerAgent {
                 const result = await retryLlmCall(
                     this.imageModel.generateContent.bind(this.imageModel),
                     {
-                        model: "gemini-3-pro-image-preview",
+                        model: imageModelName,
                         contents: [ imagePrompt ],
                         config: {
                             candidateCount: 1,

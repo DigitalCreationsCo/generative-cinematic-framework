@@ -5,7 +5,9 @@ export class GoogleProvider implements LlmProvider {
     public llm: GoogleGenAI;
     private videoModel: GoogleGenAI;
 
-    constructor(projectId: string) {
+    constructor() {
+        const projectId = process.env.GCP_PROJECT_ID || "your-project-id";
+        
         const llm = new GoogleGenAI({
             vertexai: true,
             project: projectId,

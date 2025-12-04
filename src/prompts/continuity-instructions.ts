@@ -109,7 +109,8 @@ export const buildRefineAndEnhancePrompt = (
     characters: any[],
     context: any,
     generationRules: string[],
-    previousEvaluation: any
+    previousEvaluation: any,
+    jsonSchema: any
 ) => {
     const characterDetails = scene.characters
         .map((charId) => {
@@ -144,12 +145,7 @@ ${generationRules.length > 0 ? generationRules.map(r => `- ${r}`).join('\n') : "
 ${previousEvaluation ? `- Issues: ${previousEvaluation.issues.map((i: any) => i.description).join(', ')}\n- New Suggestion: ${previousEvaluation.ruleSuggestion || "None"}` : "No feedback from previous scene."}
 
 Output a single JSON object with this exact structure:
-{
-  "refinedRules": [
-    "string"
-  ],
-  "enhancedPrompt": "string"
-}`;
+${jsonSchema}`;
 
     const parser = (jsonString: string) => {
         const parsed = JSON.parse(jsonString);

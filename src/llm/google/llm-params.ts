@@ -1,7 +1,8 @@
 import { GenerateContentParameters, GenerateImagesParameters, GenerateVideosParameters, HarmBlockMethod, HarmBlockThreshold, HarmCategory, Modality, Part, GenerateImagesConfig } from "@google/genai";
+import { imageModelName, textModelName, videoModelName } from "./models";
 
 export const buildllmParams = (params: { contents: GenerateContentParameters[ 'contents' ]; } & Partial<GenerateContentParameters>): GenerateContentParameters => ({
-    model: "gemini-3-pro-preview",
+    model: textModelName,
     ...params,
     config: {
         candidateCount: 1,
@@ -18,14 +19,14 @@ export const buildllmParams = (params: { contents: GenerateContentParameters[ 'c
     }
 });
 export const buildImageGenerationParams = (params: { prompt: GenerateImagesParameters[ 'prompt' ]; config?: Partial<GenerateImagesConfig>; } & Partial<GenerateImagesParameters>): GenerateImagesParameters => ({
-    model: "imagen-3.0-generate-002",
+    model: imageModelName,
     ...params,
     config: {
         ...params.config,
     },
 });
 export const buildVideoGenerationParams = (params: { prompt: GenerateVideosParameters[ 'prompt' ]; } & Partial<GenerateVideosParameters>): GenerateVideosParameters => ({
-    model: "veo-3.1-generate-preview",
+    model: videoModelName,
     ...params,
     config: {
         ...params.config

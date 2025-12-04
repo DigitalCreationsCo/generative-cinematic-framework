@@ -1,4 +1,4 @@
-// ============================================================================import { GoogleGenAI } from "@google/genai";
+
 import { Scene, Character, QualityEvaluation, PromptCorrection, QualityConfig } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { buildEvaluationPrompt } from "../prompts/evaluation-instruction";
@@ -70,7 +70,7 @@ export class QualityCheckAgent {
               {
                 fileData: {
                   fileUri: generatedVideoUrl,
-                  mimeType: await this.storageManager.getObjectMimeType(generatedVideoUrl)
+                  mimeType: await this.storageManager.getObjectMimeType(generatedVideoUrl) || 'video/mp4'
                 }
               }
             ]
@@ -83,11 +83,7 @@ export class QualityCheckAgent {
 
       if (!response.text) throw new Error("No quality evaluation generated from LLM from Quality Check Agent");
 
-      const parsed = JSON.parse(response.text);
-      const evaluation: QualityEvaluation = {
-        ...parsed,
-        ruleSuggestion: parsed.ruleSuggestion,
-      };
+      const evaluation = JSON.parse(response.text) as QualityEvaluation;
       
       const overallScore = this.calculateOverallScore(evaluation.scores);
       evaluation.overall = this.determineOverallRating(overallScore);
@@ -118,35 +114,41 @@ export class QualityCheckAgent {
   /**
    * Apply prompt corrections and regenerate enhanced prompt
    */
-  async applyPromptCorrections(
+  async applyQualityCorrections(
     originalPrompt: string,
-    corrections: PromptCorrection[],
+    evaluation: QualityEvaluation,
     scene: Scene,
-    characters: Character[]
+    characters: Character[],
+    attempt: number
   ): Promise<string> {
     
-    console.log(`   🔧 Applying ${corrections.length} prompt corrections...`);
-
-    const correctionPrompt = buildCorrectionPrompt(originalPrompt, scene, corrections);
-
-    try {
-      const response = await this.llm.generateContent(buildllmParams({
-        contents: [{ role: "user", parts: [{ text: correctionPrompt }] }],
-        config: { temperature: 0.5 }
-      }));
-
-      if (!response.text) throw new Error("No correction prompt generated from LLM from Quality Check Agent");
-
-      const correctedPrompt = response.text.trim();
-      
-      console.log(`   ✓ Prompt corrected: ${originalPrompt.length} → ${correctedPrompt.length} chars`);
-      
-      return correctedPrompt;
-
-    } catch (error) {
-      console.error("   ✗ Failed to apply prompt corrections:", error);
-      return originalPrompt; // Fallback to original
-    }
+    if (!evaluation.promptCorrections || evaluation.promptCorrections.length === 0) {
+        console.log(`   🔄 Attempt ${attempt + 1}: Retrying with original prompt`);
+        return originalPrompt;
+      }
+  
+      console.log(`   🔧 Attempt ${attempt + 1}: Applying ${evaluation.promptCorrections.length} corrections`);
+  
+      const correctionPrompt = buildCorrectionPrompt(originalPrompt, scene, evaluation.promptCorrections);
+  
+      try {
+        const response = await this.llm.generateContent(buildllmParams({
+          contents: [{ role: "user", parts: [{ text: correctionPrompt }] }],
+          config: { temperature: 0.5 }
+        }));
+  
+        if (!response.text) throw new Error("No correction prompt generated from LLM from Quality Check Agent");
+  
+        const correctedPrompt = response.text.trim();
+        
+        console.log(`   ✓ Prompt corrected: ${originalPrompt.length} → ${correctedPrompt.length} chars`);
+        
+        return correctedPrompt;
+  
+      } catch (error) {
+        console.error("   ✗ Failed to apply prompt corrections:", error);
+        return originalPrompt; // Fallback to original
+      }
   }
 
   /**
@@ -163,12 +165,15 @@ export class QualityCheckAgent {
     let totalScore = 0;
     let totalWeight = 0;
 
-    Object.values(scores).forEach(score => {
-      totalScore += ratingToScore[score.rating] * score.weight;
-      totalWeight += score.weight;
-    });
-
-    return totalScore / totalWeight;
+    for (const key in scores) {
+        if (Object.prototype.hasOwnProperty.call(scores, key)) {
+            const score = scores[key as keyof typeof scores];
+            totalScore += ratingToScore[score.rating] * score.weight;
+            totalWeight += score.weight;
+        }
+    }
+    
+    return totalWeight > 0 ? totalScore / totalWeight : 0;
   }
 
   /**
@@ -178,37 +183,9 @@ export class QualityCheckAgent {
     if (score >= this.qualityConfig.acceptThreshold) return "ACCEPT";
     if (score >= this.qualityConfig.minorIssueThreshold) return "ACCEPT_WITH_NOTES";
     if (score >= this.qualityConfig.majorIssueThreshold) return "REGENERATE_MINOR";
-    return "REGENERATE_MAJOR";
+    return "FAIL";
   }
-
-  /**
-   * Apply quality corrections to prompt.
-   */
-  async applyQualityCorrections(
-    currentPrompt: string,
-    evaluation: QualityEvaluation,
-    scene: Scene,
-    characters: Character[],
-    attempt: number
-  ): Promise<string> {
-
-    if (!evaluation.promptCorrections || evaluation.promptCorrections.length === 0) {
-      console.log(`   🔄 Attempt ${attempt + 1}: Retrying with original prompt`);
-      return currentPrompt;
-    }
-
-    console.log(`   🔧 Attempt ${attempt + 1}: Applying ${evaluation.promptCorrections.length} corrections`);
-
-    const correctedPrompt = await this.applyPromptCorrections(
-      currentPrompt,
-      evaluation.promptCorrections,
-      scene,
-      characters
-    );
-
-    return correctedPrompt;
-  }
-
+  
   /**
    * Internal: Log attempt result concisely.
    */
@@ -252,7 +229,7 @@ export class QualityCheckAgent {
     attempt: number,
     evaluation: QualityEvaluation
   ): Promise<void> {
-    const evaluationPath = this.storageManager.getGcsObjectPath(
+    const evaluationPath = await this.storageManager.getGcsObjectPath(
       { type: "quality_evaluation", sceneId, attempt }
     );
     

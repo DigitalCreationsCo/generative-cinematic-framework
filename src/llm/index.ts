@@ -1,11 +1,24 @@
 export * from './types';
 export * from './google/google-provider';
-import { LlmProvider } from './types';
+import { GoogleProvider } from './google/google-provider';
+import { LlmProvider, LlmProviderName } from './types';
 
 export class LlmWrapper {
     private provider: LlmProvider;
 
-    constructor(provider: LlmProvider) {
+    constructor() {
+        const providerName = process.env.LLM_PROVIDER as LlmProviderName;
+
+        let provider;
+        switch (providerName) {
+            case "google":
+                provider = new GoogleProvider()
+                break;
+            default:
+                provider = new GoogleProvider();
+                break;
+        }
+        
         this.provider = provider;
     }
 

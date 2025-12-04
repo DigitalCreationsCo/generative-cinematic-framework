@@ -75,7 +75,7 @@ export const CharacterSchema = z.object({
     distinctiveFeatures: z.array(z.string()).describe("list of distinctive features"),
   }),
   appearanceNotes: z.array(z.string()).describe("additional notes on appearance"),
-  
+
   // State tracking merged into Character
   state: CharacterStateSchema.optional(),
 });
@@ -194,6 +194,26 @@ export type Storyboard = z.infer<typeof StoryboardSchema>;
 // GRAPH STATE (for LangGraph workflow)
 // ============================================================================
 
+export const SceneGenerationMetricSchema = z.object({
+  sceneId: z.number(),
+  attempts: z.number(),
+  bestAttempt: z.number(),
+  finalScore: z.number(),
+  duration: z.number(),
+  ruleAdded: z.boolean(),
+});
+export type SceneGenerationMetric = z.infer<typeof SceneGenerationMetricSchema>;
+
+export const WorkflowMetricsSchema = z.object({
+    sceneMetrics: z.array(SceneGenerationMetricSchema),
+    globalTrend: z.object({
+        averageAttempts: z.number(),
+        attemptTrendSlope: z.number(),
+        qualityTrendSlope: z.number(),
+    }).optional(),
+});
+export type WorkflowMetrics = z.infer<typeof WorkflowMetricsSchema>;
+
 export const InitialGraphStateSchema = z.object({
   // Initial input
   initialPrompt: z.string().describe("path to the audio file to process (optional)"),
@@ -215,6 +235,9 @@ export const InitialGraphStateSchema = z.object({
   // Feedback Loop
   generationRules: z.array(z.string()).optional().describe("raw, unfiltered list of generation rule suggestions"),
   refinedRules: z.array(z.string()).optional().describe("consolidated, actionable list of generation rules"),
+  
+  // Metrics
+  metrics: WorkflowMetricsSchema.optional(),
 });
 export type InitialGraphState = z.infer<typeof InitialGraphStateSchema>;
 
@@ -229,7 +252,6 @@ export const GraphStateSchema = z.intersection(
   })
 );
 export type GraphState = z.infer<typeof GraphStateSchema>;
-
 
 // ============================================================================
 // UTILITY TYPES

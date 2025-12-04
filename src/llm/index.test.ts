@@ -9,7 +9,7 @@ describe('LlmWrapper', () => {
             generateVideos: vi.fn(),
             getVideosOperation: vi.fn(),
         } as LlmProvider;
-        const wrapper = new LlmWrapper(provider);
+        const wrapper = new LlmWrapper();
         const result = await wrapper.generateContent('test-params');
         expect(result).toBe('content');
         expect(provider.generateContent).toHaveBeenCalledWith('test-params');
@@ -21,7 +21,7 @@ describe('LlmWrapper', () => {
             generateVideos: vi.fn().mockResolvedValue('videos'),
             getVideosOperation: vi.fn(),
         } as LlmProvider;
-        const wrapper = new LlmWrapper(provider);
+        const wrapper = new LlmWrapper();
         const result = await wrapper.generateVideos('test-params');
         expect(result).toBe('videos');
         expect(provider.generateVideos).toHaveBeenCalledWith('test-params');
@@ -33,7 +33,7 @@ describe('LlmWrapper', () => {
             generateVideos: vi.fn(),
             getVideosOperation: vi.fn().mockResolvedValue('operation'),
         } as LlmProvider;
-        const wrapper = new LlmWrapper(provider);
+        const wrapper = new LlmWrapper();
         const result = await wrapper.getVideosOperation('test-params');
         expect(result).toBe('operation');
         expect(provider.getVideosOperation).toHaveBeenCalledWith('test-params');

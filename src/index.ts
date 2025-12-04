@@ -10,6 +10,9 @@ import ffprobeBin from "@ffprobe-installer/ffprobe";
 ffmpeg.setFfmpegPath(ffmpegBin.path);
 ffmpeg.setFfprobePath(ffprobeBin.path);
 
+import * as dotenv from "dotenv";
+dotenv.config();
+
 import { GoogleGenAI } from "@google/genai";
 import { StateGraph, END, START } from "@langchain/langgraph";
 import {
@@ -30,10 +33,8 @@ import { AudioProcessingAgent } from "./agents/audio-processing-agent";
 import { LlmWrapper, GoogleProvider } from "./llm";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-
-import * as dotenv from "dotenv";
 import { defaultCreativePrompt } from "./prompts/default-creative-prompt";
-dotenv.config();
+import { imageModelName, textModelName, videoModelName } from "./llm/google/models";
 
 class CinematicVideoWorkflow {
   private graph: StateGraph<GraphState>;
@@ -58,7 +59,7 @@ class CinematicVideoWorkflow {
     this.videoId = videoId;
     this.storageManager = new GCPStorageManager(projectId, videoId, bucketName);
 
-    const llmWrapper = new LlmWrapper(new GoogleProvider(projectId));
+    const llmWrapper = new LlmWrapper();
 
     this.audioProcessingAgent = new AudioProcessingAgent(llmWrapper, this.storageManager);
     this.compositionalAgent = new CompositionalAgent(llmWrapper, this.storageManager);
@@ -88,6 +89,10 @@ class CinematicVideoWorkflow {
         errors: null,
         generationRules: null,
         refinedRules: null,
+        metrics: {
+          reducer: (x: any, y: any) => y,
+          default: () => ({ sceneMetrics: [] }),
+        },
       },
     });
 
@@ -97,11 +102,7 @@ class CinematicVideoWorkflow {
         return "process_scene";
       }
 
-      if (state.hasAudio) {
-        return "create_timed_scenes_from_audio";
-      } else {
-        return "expand_creative_prompt";
-      }
+      return "expand_creative_prompt";
     });
 
     workflow.addNode("expand_creative_prompt", async (state: GraphState) => {
@@ -117,6 +118,14 @@ class CinematicVideoWorkflow {
         ...state,
         creativePrompt: expandedPrompt,
       };
+    });
+
+    workflow.addConditionalEdges("expand_creative_prompt" as any, (state: GraphState) => {
+      if (state.hasAudio) {
+        return "create_timed_scenes_from_audio";
+      } else {
+        return "generate_storyboard_from_prompt";
+      }
     });
 
     workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
@@ -278,12 +287,34 @@ class CinematicVideoWorkflow {
         ? [ ...(state.generationRules || []), result.evaluation.ruleSuggestion ]
         : state.generationRules;
 
+      const sceneMetric: SceneGenerationMetric = {
+        sceneId: scene.id,
+        attempts: result.attempts,
+        bestAttempt: result.attempts, // Simplified for now
+        finalScore: result.finalScore,
+        duration: 0, // Placeholder for now
+        ruleAdded: !!result.evaluation?.ruleSuggestion
+      };
+
+      const metrics = {
+        sceneMetrics: [ ...(state.metrics?.sceneMetrics || []), sceneMetric ],
+      };
+
+      const trends = calculateLearningTrends(metrics.sceneMetrics);
+      metrics.globalTrend = trends;
+
+      console.log(`\n🧠 Learning Report (Scene ${scene.id}):`);
+      console.log(`   - Average Attempts: ${trends.averageAttempts.toFixed(2)}`);
+      console.log(`   - Attempt Trend Slope: ${trends.attemptTrendSlope.toFixed(3)} (${trends.attemptTrendSlope < 0 ? 'Improving' : 'Worsening or Stable'})`);
+      console.log(`   - Quality Trend Slope: ${trends.qualityTrendSlope.toFixed(3)} (${trends.qualityTrendSlope > 0 ? 'Improving' : 'Worsening or Stable'})`);
+
       return {
         ...state,
         currentSceneIndex: state.currentSceneIndex + 1,
         storyboardState: updatedStoryboardState,
         generationRules: newGenerationRules,
         refinedRules: refinedRules,
+        metrics,
       };
     });
 
@@ -340,7 +371,7 @@ class CinematicVideoWorkflow {
     workflow.addEdge("enhance_storyboard_with_prompt" as any, "generate_character_refs" as any);
 
     // Non-audio workflow path
-    workflow.addEdge("expand_creative_prompt" as any, "generate_storyboard_from_prompt" as any);
+    // Note: expand_creative_prompt branches conditionally now
     workflow.addEdge("generate_storyboard_from_prompt" as any, "generate_character_refs" as any);
 
     // Common path for both workflows
@@ -420,7 +451,7 @@ class CinematicVideoWorkflow {
         creativePrompt: creativePrompt || '',
         hasAudio,
         storyboard: updatedStoryboard,
-        storyboardState: updatedStoryboard, 
+        storyboardState: updatedStoryboard,
         currentSceneIndex: 0,
         audioGcsUri,
         errors: [],

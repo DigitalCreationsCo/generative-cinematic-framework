@@ -2,6 +2,7 @@ import { GoogleGenAI, Modality, Part } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { LlmWrapper } from "../llm";
 import { buildllmParams } from "../llm/google/llm-params";
+import { imageModelName } from "../llm/google/models";
 
 export class FrameCompositionAgent {
     private imageModel: LlmWrapper;
@@ -40,7 +41,7 @@ export class FrameCompositionAgent {
 
         const outputMimeType = "image/png";
         const result = await this.imageModel.generateContent(buildllmParams({
-            model: "gemini-3-pro-image-preview",
+            model: imageModelName,
             contents: [ textPrompt, ...lastFrameInput, ...characterReferenceInputs ],
             config: {
                 responseModalities: [ Modality.IMAGE ],

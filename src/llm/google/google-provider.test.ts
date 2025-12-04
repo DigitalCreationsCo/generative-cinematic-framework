@@ -30,7 +30,7 @@ describe('GoogleProvider', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        provider = new GoogleProvider('test-project');
+        provider = new GoogleProvider();
     });
 
     it('should proxy generateContent calls to the underlying model', async () => {
