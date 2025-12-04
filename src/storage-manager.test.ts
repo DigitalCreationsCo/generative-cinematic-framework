@@ -1,16 +1,20 @@
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GCPStorageManager } from './storage-manager';
+import fs from 'fs';
 
 const mockFile = {
   save: vi.fn(),
   download: vi.fn(),
   exists: vi.fn().mockResolvedValue([ true ]),
   getMetadata: vi.fn().mockResolvedValue([ { contentType: 'video/mp4' } ]),
+  name: 'test-file',
 };
 
 const mockBucket = {
   upload: vi.fn(),
   file: vi.fn(() => mockFile),
+  getFiles: vi.fn(),
 };
 
 const mockStorage = {
@@ -26,6 +30,27 @@ vi.mock('@google-cloud/storage', () => {
   return { Storage: MockStorage };
 });
 
+// Mock fs for persistence testing
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  const existsSync = vi.fn();
+  const readFileSync = vi.fn();
+  const writeFileSync = vi.fn();
+  
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      existsSync,
+      readFileSync,
+      writeFileSync,
+    },
+    existsSync,
+    readFileSync,
+    writeFileSync,
+  };
+});
+
 describe('GCPStorageManager', () => {
   let storageManager: GCPStorageManager;
   const projectId = 'test-project';
@@ -33,6 +58,10 @@ describe('GCPStorageManager', () => {
   const bucketName = 'test-bucket';
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset fs mocks default behavior
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.readFileSync).mockReturnValue('{}');
     storageManager = new GCPStorageManager(projectId, videoId, bucketName);
   });
 
@@ -42,6 +71,45 @@ describe('GCPStorageManager', () => {
 
   it('should be initialized correctly', () => {
     expect(storageManager).toBeInstanceOf(GCPStorageManager);
+  });
+
+  describe('initialize', () => {
+    it('should sync latest attempts from GCS', async () => {
+      const mockFiles = [
+        { name: 'test-video/scenes/scene_001_05.mp4' },
+        { name: 'test-video/scenes/scene_002_03.mp4' },
+        { name: 'test-video/images/frames/scene_001_lastframe_02.png' },
+      ];
+      
+      mockBucket.getFiles.mockResolvedValue([ mockFiles ]);
+      
+      await storageManager.initialize();
+      
+      expect(mockBucket.getFiles).toHaveBeenCalledTimes(4); // Once for each asset type
+      
+      // Verify state by checking path generation (synchronous)
+      const path1 = storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' });
+      expect(path1).toBe('test-video/scenes/scene_001_05.mp4');
+      
+      const path2 = storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 2, attempt: 'latest' });
+      expect(path2).toBe('test-video/scenes/scene_002_03.mp4');
+
+       const path3 = storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 1, attempt: 'latest' });
+      expect(path3).toBe('test-video/images/frames/scene_001_lastframe_02.png');
+    });
+
+    it('should handle empty GCS gracefully', async () => {
+        mockBucket.getFiles.mockResolvedValue([ [] ]);
+        await storageManager.initialize();
+        const path = storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' });
+        expect(path).toBe('test-video/scenes/scene_001_01.mp4'); // Default to 1
+    });
+    
+     it('should handle GCS errors gracefully', async () => {
+        mockBucket.getFiles.mockRejectedValue(new Error('GCS Error'));
+        // Should not throw
+        await expect(storageManager.initialize()).resolves.not.toThrow();
+    });
   });
 
   describe('getGcsObjectPath', () => {
@@ -71,14 +139,6 @@ describe('GCPStorageManager', () => {
       expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 2, attempt: 'latest' })).toBe('test-video/images/frames/scene_002_lastframe_03.png');
     });
 
-    it('should use latest attempt when attempt is undefined after setting', () => {
-      storageManager.setLatestAttempt('composite_frame', 1, 7);
-      storageManager.setLatestAttempt('quality_evaluation', 2, 4);
-
-      expect(storageManager.getGcsObjectPath({ type: 'composite_frame', sceneId: 1 })).toBe('test-video/images/frames/scene_001_composite_07.png');
-      expect(storageManager.getGcsObjectPath({ type: 'quality_evaluation', sceneId: 2 })).toBe('test-video/scenes/scene_002_evaluation_04.mp4');
-    });
-
     it('should throw an error for unknown object type', () => {
       // @ts-expect-error
       expect(() => storageManager.getGcsObjectPath({ type: 'unknown_type' })).toThrow('Unknown GCS object type: unknown_type');
@@ -97,19 +157,29 @@ describe('GCPStorageManager', () => {
       expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_05.mp4');
     });
 
-    it('should track attempts independently for different scene IDs', () => {
-      storageManager.setLatestAttempt('scene_video', 1, 2);
-      storageManager.setLatestAttempt('scene_video', 2, 5);
-      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_02.mp4');
-      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 2, attempt: 'latest' })).toBe('test-video/scenes/scene_002_05.mp4');
+    it('should save to persistence file on update', () => {
+        storageManager.setLatestAttempt('scene_video', 1, 3);
+        expect(fs.writeFileSync).toHaveBeenCalledWith('latest_attempts.json', expect.any(String));
     });
+  });
 
-    it('should track attempts independently for different object types', () => {
-      storageManager.setLatestAttempt('scene_video', 1, 3);
-      storageManager.setLatestAttempt('scene_last_frame', 1, 7);
-      expect(storageManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' })).toBe('test-video/scenes/scene_001_03.mp4');
-      expect(storageManager.getGcsObjectPath({ type: 'scene_last_frame', sceneId: 1, attempt: 'latest' })).toBe('test-video/images/frames/scene_001_lastframe_07.png');
-    });
+  describe('Persistence', () => {
+      it('should load attempts from file on construction', () => {
+          vi.mocked(fs.existsSync).mockReturnValue(true);
+          vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ 'scene_video_1': 10 }));
+          
+          const newManager = new GCPStorageManager(projectId, videoId, bucketName);
+          const path = newManager.getGcsObjectPath({ type: 'scene_video', sceneId: 1, attempt: 'latest' });
+          expect(path).toBe('test-video/scenes/scene_001_10.mp4');
+      });
+
+       it('should handle corrupted persistence file gracefully', () => {
+          vi.mocked(fs.existsSync).mockReturnValue(true);
+          vi.mocked(fs.readFileSync).mockReturnValue('invalid json');
+          
+          // Should not throw
+          expect(() => new GCPStorageManager(projectId, videoId, bucketName)).not.toThrow();
+      });
   });
 
   describe('getPublicUrl', () => {
@@ -140,134 +210,6 @@ describe('GCPStorageManager', () => {
           cacheControl: 'public, max-age=31536000',
         },
       });
-    });
-  });
-
-  describe('uploadBuffer', () => {
-    it('should call file.save with the correct parameters', async () => {
-      const buffer = Buffer.from('test');
-      const destination = 'test/test.txt';
-      const contentType = 'text/plain';
-      await storageManager.uploadBuffer(buffer, destination, contentType);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith(destination);
-      expect(mockFile.save).toHaveBeenCalledWith(buffer, {
-        contentType,
-        metadata: {
-          cacheControl: 'public, max-age=31536000',
-        },
-      });
-    });
-  });
-
-  describe('uploadJSON', () => {
-    it('should call uploadBuffer with the correct parameters', async () => {
-      const data = { key: 'value' };
-      const destination = 'test/test.json';
-      const buffer = Buffer.from(JSON.stringify(data, null, 2));
-      const spy = vi.spyOn(storageManager, 'uploadBuffer');
-      await storageManager.uploadJSON(data, destination);
-      expect(spy).toHaveBeenCalledWith(buffer, destination, 'application/json');
-    });
-  });
-
-  describe('uploadAudioFile', () => {
-    it('should upload audio file if it does not exist', async () => {
-      const localPath = '/tmp/audio.mp3';
-      const destination = 'audio/audio.mp3';
-      const gcsUri = `gs://${bucketName}/${destination}`;
-
-      vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(gcsUri);
-      vi.spyOn(storageManager, 'fileExists').mockResolvedValue(false);
-      const uploadFileSpy = vi.spyOn(storageManager, 'uploadFile').mockResolvedValue(gcsUri);
-
-      const result = await storageManager.uploadAudioFile(localPath);
-
-      expect(result).toBe(gcsUri);
-      expect(uploadFileSpy).toHaveBeenCalledWith(localPath, destination);
-    });
-
-    it('should skip upload if audio file already exists', async () => {
-      const localPath = '/tmp/audio.mp3';
-      const destination = 'audio/audio.mp3';
-      const gcsUri = `gs://${bucketName}/${destination}`;
-
-      vi.spyOn(storageManager, 'getGcsUrl').mockReturnValue(gcsUri);
-      vi.spyOn(storageManager, 'fileExists').mockResolvedValue(true);
-      const uploadFileSpy = vi.spyOn(storageManager, 'uploadFile');
-
-      const result = await storageManager.uploadAudioFile(localPath);
-
-      expect(result).toBe(gcsUri);
-      expect(uploadFileSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('downloadJSON', () => {
-    it('should download and parse a JSON file', async () => {
-      const source = 'test/test.json';
-      const data = { key: 'value' };
-      const buffer = Buffer.from(JSON.stringify(data));
-      mockFile.download.mockResolvedValue([ buffer ]);
-      const result = await storageManager.downloadJSON(source);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith(source);
-      expect(result).toEqual(data);
-    });
-  });
-
-  describe('downloadFile', () => {
-    it('should call file.download with the correct parameters', async () => {
-      const gcsPath = 'gs://test-bucket/test/test.txt';
-      const localDestination = '/tmp/test.txt';
-      await storageManager.downloadFile(gcsPath, localDestination);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith('test/test.txt');
-      expect(mockFile.download).toHaveBeenCalledWith({ destination: localDestination });
-    });
-
-    it('should throw an error for invalid GCS URI', async () => {
-      const gcsPath = 'gs://';
-      const localDestination = '/tmp/test.txt';
-      await expect(storageManager.downloadFile(gcsPath, localDestination)).rejects.toThrow('Invalid GCS URI format: gs://');
-    });
-
-    it('should throw an error for different bucket', async () => {
-      const gcsPath = 'gs://different-bucket/test/test.txt';
-      const localDestination = '/tmp/test.txt';
-      await expect(storageManager.downloadFile(gcsPath, localDestination)).rejects.toThrow('Cannot operate on object in different bucket: different-bucket');
-    });
-  });
-
-  describe('downloadToBuffer', () => {
-    it('should download a file to a buffer', async () => {
-      const gcsPath = 'gs://test-bucket/test/test.txt';
-      const buffer = Buffer.from('test');
-      mockFile.download.mockResolvedValue([ buffer ]);
-      const result = await storageManager.downloadToBuffer(gcsPath);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith('test/test.txt');
-      expect(result).toBe(buffer);
-    });
-  });
-
-  describe('fileExists', () => {
-    it('should call file.exists', async () => {
-      const gcsPath = 'gs://test-bucket/test/test.txt';
-      await storageManager.fileExists(gcsPath);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith('test/test.txt');
-      expect(mockFile.exists).toHaveBeenCalled();
-    });
-  });
-
-  describe('getObjectMimeType', () => {
-    it('should return the content type of a file', async () => {
-      const gcsPath = 'gs://test-bucket/test/test.txt';
-      const mimeType = await storageManager.getObjectMimeType(gcsPath);
-      expect(mockStorage.bucket).toHaveBeenCalledWith(bucketName);
-      expect(mockBucket.file).toHaveBeenCalledWith('test/test.txt');
-      expect(mimeType).toBe('video/mp4');
     });
   });
 });

@@ -34,33 +34,56 @@ export class GCPStorageManager {
   private bucketName: string;
   private videoId: string;
   private latestAttempts: Map<string, number> = new Map();
-  private persistencePath: string = 'latest_attempts.json';
 
   constructor(projectId: string, videoId: string, bucketName: string) {
     this.storage = new Storage({ projectId });
     this.bucketName = bucketName;
     this.videoId = videoId;
-    this.loadLatestAttempts();
   }
 
-  private loadLatestAttempts() {
+  /**
+   * Initializes the storage manager by querying GCS for existing files
+   * and populating the in-memory attempt cache.
+   */
+  async initialize(): Promise<void> {
+    console.log("   ... Initializing storage manager and syncing state from GCS...");
+    
+    // We need to scan for several types of versioned assets
+    await this.syncLatestAttempts('scene_video', 'scenes', /scene_\d{3}_(\d{2})\.mp4$/);
+    await this.syncLatestAttempts('scene_last_frame', 'images/frames', /scene_\d{3}_lastframe_(\d{2})\.png$/);
+    await this.syncLatestAttempts('composite_frame', 'images/frames', /scene_\d{3}_composite_(\d{2})\.png$/);
+    await this.syncLatestAttempts('quality_evaluation', 'scenes', /scene_\d{3}_evaluation_(\d{2})\.mp4$/);
+
+    console.log("   ... Storage state synced.");
+  }
+
+  /**
+   * Helper to scan GCS prefix and update latestAttempts map
+   */
+  private async syncLatestAttempts(type: GcsObjectType, subDir: string, regex: RegExp) {
+    const prefix = path.posix.join(this.videoId, subDir);
     try {
-      if (fs.existsSync(this.persistencePath)) {
-        const data = fs.readFileSync(this.persistencePath, 'utf-8');
-        const parsed = JSON.parse(data);
-        this.latestAttempts = new Map(Object.entries(parsed));
+      const [files] = await this.storage.bucket(this.bucketName).getFiles({ prefix });
+      
+      for (const file of files) {
+        const match = file.name.match(regex);
+        if (match && match[1]) {
+          // Extract sceneId from filename (assuming standard format scene_XXX_...)
+          const sceneIdMatch = file.name.match(/scene_(\d{3})_/);
+          if (sceneIdMatch && sceneIdMatch[1]) {
+            const sceneId = parseInt(sceneIdMatch[1], 10);
+            const attempt = parseInt(match[1], 10);
+            
+            const key = `${type}_${sceneId}`;
+            const current = this.latestAttempts.get(key) || 0;
+            if (attempt > current) {
+              this.latestAttempts.set(key, attempt);
+            }
+          }
+        }
       }
     } catch (error) {
-      console.warn("Failed to load latest attempts:", error);
-    }
-  }
-
-  private saveLatestAttempts() {
-    try {
-      const obj = Object.fromEntries(this.latestAttempts);
-      fs.writeFileSync(this.persistencePath, JSON.stringify(obj, null, 2));
-    } catch (error) {
-      console.warn("Failed to save latest attempts:", error);
+      console.warn(`   ⚠️ Failed to sync state for ${type}:`, error);
     }
   }
 
@@ -73,7 +96,6 @@ export class GCPStorageManager {
     const current = this.latestAttempts.get(key) || 0;
     if (attempt > current) {
       this.latestAttempts.set(key, attempt);
-      this.saveLatestAttempts();
     }
   }
 
@@ -84,111 +106,6 @@ export class GCPStorageManager {
   private getLatestAttempt(type: GcsObjectType, sceneId: number): number {
     const key = `${type}_${sceneId}`;
     return this.latestAttempts.get(key) || 1;
-  }
-
-  async uploadFile(
-    localPath: string,
-    destination: string
-  ): Promise<string> {
-    const bucket = this.storage.bucket(this.bucketName);
-    // Ensure destination is a clean relative path
-    const normalizedDest = this.normalizePath(destination);
-    
-    await bucket.upload(localPath, {
-      destination: normalizedDest,
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
-    return this.getGcsUrl(normalizedDest);
-  }
-
-  async uploadBuffer(
-    buffer: Buffer,
-    destination: string,
-    contentType: string
-  ): Promise<string> {
-    const bucket = this.storage.bucket(this.bucketName);
-    const normalizedDest = this.normalizePath(destination);
-    const file = bucket.file(normalizedDest);
-    
-    await file.save(buffer, {
-      contentType,
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
-    return this.getGcsUrl(normalizedDest);
-  }
-
-  async uploadJSON(data: any, destination: string): Promise<string> {
-    const buffer = Buffer.from(JSON.stringify(data, null, 2));
-    return this.uploadBuffer(buffer, destination, "application/json");
-  }
-
-  async uploadAudioFile(localPath: string): Promise<string> {
-    const fileName = path.basename(localPath);
-    const destination = `audio/${fileName}`;
-    const gcsUri = this.getGcsUrl(destination);
-
-    const exists = await this.fileExists(destination);
-    if (exists) {
-      console.log(`   ... Audio file already exists at ${gcsUri}, skipping upload.`);
-      return gcsUri;
-    }
-
-    console.log(`   ... Uploading ${localPath} to GCS at ${destination}`);
-    return this.uploadFile(localPath, destination);
-  }
-
-  async downloadJSON<T>(source: string): Promise<T> {
-    const bucket = this.storage.bucket(this.bucketName);
-    const path = this.parsePathFromUri(source);
-    const file = bucket.file(path);
-    const [ contents ] = await file.download();
-    return JSON.parse(contents.toString()) as T;
-  }
-
-  private normalizePath(inputPath: string): string {
-    // 1. Strip gs:// prefix if present
-    let cleanPath = inputPath.replace(/^gs:\/\/[^\/]+\//, '');
-    
-    // 2. Normalize separators using path.posix (always forward slashes)
-    cleanPath = path.posix.normalize(cleanPath);
-    
-    // 3. Remove leading slash if present (GCS paths shouldn't start with /)
-    if (cleanPath.startsWith('/')) {
-      cleanPath = cleanPath.substring(1);
-    }
-    
-    return cleanPath;
-  }
-
-  private parsePathFromUri(uriOrPath: string): string {
-    return this.normalizePath(uriOrPath);
-  }
-
-  async downloadFile(gcsPath: string, localDestination: string): Promise<void> {
-    const path = this.parsePathFromUri(gcsPath);
-    const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(path);
-    await file.download({ destination: localDestination });
-  }
-
-  async downloadToBuffer(gcsPath: string): Promise<Buffer> {
-    const path = this.parsePathFromUri(gcsPath);
-    const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(path);
-    const [ contents ] = await file.download();
-    return contents;
-  }
-
-  async fileExists(gcsPath: string): Promise<boolean> {
-    const path = this.parsePathFromUri(gcsPath);
-    const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(path);
-    const [ exists ] = await file.exists();
-    return exists;
   }
 
   /**
@@ -249,6 +166,104 @@ export class GCPStorageManager {
       default:
         throw new Error(`Unknown GCS object type: ${(params as any).type}`);
     }
+  }
+
+  async uploadFile(
+    localPath: string,
+    destination: string
+  ): Promise<string> {
+    const bucket = this.storage.bucket(this.bucketName);
+    const normalizedDest = this.normalizePath(destination);
+    
+    await bucket.upload(localPath, {
+      destination: normalizedDest,
+      metadata: {
+        cacheControl: "public, max-age=31536000",
+      },
+    });
+    return this.getGcsUrl(normalizedDest);
+  }
+
+  async uploadBuffer(
+    buffer: Buffer,
+    destination: string,
+    contentType: string
+  ): Promise<string> {
+    const bucket = this.storage.bucket(this.bucketName);
+    const normalizedDest = this.normalizePath(destination);
+    const file = bucket.file(normalizedDest);
+    
+    await file.save(buffer, {
+      contentType,
+      metadata: {
+        cacheControl: "public, max-age=31536000",
+      },
+    });
+    return this.getGcsUrl(normalizedDest);
+  }
+
+  async uploadJSON(data: any, destination: string): Promise<string> {
+    const buffer = Buffer.from(JSON.stringify(data, null, 2));
+    return this.uploadBuffer(buffer, destination, "application/json");
+  }
+
+  async uploadAudioFile(localPath: string): Promise<string> {
+    const fileName = path.basename(localPath);
+    const destination = `audio/${fileName}`;
+    const gcsUri = this.getGcsUrl(destination);
+
+    const exists = await this.fileExists(destination);
+    if (exists) {
+      console.log(`   ... Audio file already exists at ${gcsUri}, skipping upload.`);
+      return gcsUri;
+    }
+
+    console.log(`   ... Uploading ${localPath} to GCS at ${destination}`);
+    return this.uploadFile(localPath, destination);
+  }
+
+  async downloadJSON<T>(source: string): Promise<T> {
+    const bucket = this.storage.bucket(this.bucketName);
+    const path = this.parsePathFromUri(source);
+    const file = bucket.file(path);
+    const [ contents ] = await file.download();
+    return JSON.parse(contents.toString()) as T;
+  }
+
+  private normalizePath(inputPath: string): string {
+    let cleanPath = inputPath.replace(/^gs:\/\/[^\/]+\//, '');
+    cleanPath = path.posix.normalize(cleanPath);
+    if (cleanPath.startsWith('/')) {
+      cleanPath = cleanPath.substring(1);
+    }
+    return cleanPath;
+  }
+
+  private parsePathFromUri(uriOrPath: string): string {
+    return this.normalizePath(uriOrPath);
+  }
+
+  async downloadFile(gcsPath: string, localDestination: string): Promise<void> {
+    const path = this.parsePathFromUri(gcsPath);
+    const bucket = this.storage.bucket(this.bucketName);
+    const file = bucket.file(path);
+    await file.download({ destination: localDestination });
+  }
+
+  async downloadToBuffer(gcsPath: string): Promise<Buffer> {
+    const path = this.parsePathFromUri(gcsPath);
+    const bucket = this.storage.bucket(this.bucketName);
+    const file = bucket.file(path);
+    const [ contents ] = await file.download();
+    return contents;
+  }
+
+  async fileExists(gcsPath: string): Promise<boolean> {
+    const path = this.parsePathFromUri(gcsPath);
+    const bucket = this.storage.bucket(this.bucketName);
+    const file = bucket.file(path);
+    const [ exists ] = await file.exists();
+    return exists;
   }
 
   getPublicUrl(gcsPath: string): string {

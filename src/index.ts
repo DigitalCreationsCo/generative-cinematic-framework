@@ -16,9 +16,10 @@ import {
   Character,
   Scene,
   Storyboard,
-  ContinuityContext,
   GraphState,
   QualityEvaluation,
+  GeneratedScene,
+  InitialGraphState,
 } from "./types";
 import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { CompositionalAgent } from "./agents/compositional-agent";
@@ -81,18 +82,17 @@ class CinematicVideoWorkflow {
         audioGcsUri: null,
         hasAudio: null,
         storyboard: null,
+        storyboardState: null,
         currentSceneIndex: null,
-        generatedScenes: null,
-        characters: null,
-        locations: null,
-        continuityContext: null,
         renderedVideoUrl: null,
         errors: null,
+        generationRules: null,
+        refinedRules: null,
       },
     });
 
     workflow.addConditionalEdges(START, (state: GraphState) => {
-      if (state.storyboard && state.characters && state.characters.length > 0 && state.locations && state.locations.length > 0) {
+      if (state.storyboardState && state.storyboardState.scenes.some(s => s.generatedVideoUrl)) {
         console.log("   Resuming workflow from process_scene...");
         return "process_scene";
       }
@@ -132,7 +132,7 @@ class CinematicVideoWorkflow {
         storyboard: {
           metadata: { duration: totalDuration },
           scenes: segments,
-        },
+        } as Storyboard,
       };
     });
 
@@ -147,12 +147,8 @@ class CinematicVideoWorkflow {
       return {
         ...state,
         storyboard,
+        storyboardState: storyboard,
         currentSceneIndex: 0,
-        generatedScenes: [],
-        continuityContext: {
-          characters: new Map(),
-          locations: new Map(),
-        },
       };
     });
 
@@ -165,84 +161,85 @@ class CinematicVideoWorkflow {
         state.creativePrompt
       );
 
+      // Enhanced storyboard updates the state
       return {
         ...state,
         storyboard,
+        storyboardState: storyboard,
         currentSceneIndex: 0,
-        generatedScenes: [],
-        continuityContext: {
-          characters: new Map(),
-          locations: new Map(),
-        },
       };
     });
 
     workflow.addNode("generate_character_refs", async (state: GraphState) => {
-      if (!state.storyboard) throw new Error("No storyboard available");
+      if (!state.storyboardState) throw new Error("No storyboard state available");
 
       console.log("\n🎨 PHASE 2a: Generating Character References...");
       const characters = await this.continuityAgent.generateCharacterAssets(
-        state.storyboard.characters,
+        state.storyboardState.characters,
       );
 
       return {
         ...state,
-        characters,
+        storyboardState: {
+          ...state.storyboardState,
+          characters,
+        }
       };
     });
 
     workflow.addNode("generate_location_refs", async (state: GraphState) => {
-      if (!state.storyboard) throw new Error("No storyboard available");
+      if (!state.storyboardState) throw new Error("No storyboard state available");
 
       console.log("\n🎨 PHASE 2b: Generating Location References...");
       const locations = await this.continuityAgent.generateLocationAssets(
-        state.storyboard.locations,
+        state.storyboardState.locations,
       );
 
       return {
         ...state,
-        locations,
+        storyboardState: {
+          ...state.storyboardState,
+          locations,
+        }
       };
     });
 
     workflow.addNode("process_scene", async (state: GraphState) => {
-      if (!state.storyboard || !state.characters || !state.locations) {
-        throw new Error("Missing storyboard, characters, or locations");
+      if (!state.storyboardState) {
+        throw new Error("Missing storyboard state");
       }
 
-      const scene = state.storyboard.scenes[ state.currentSceneIndex ];
+      const scene = state.storyboardState.scenes[ state.currentSceneIndex ];
       console.log(
-        `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboard.scenes.length}`
+        `\n🎬 PHASE 3: Processing Scene ${scene.id}/${state.storyboardState.scenes.length}`
       );
 
       let currentSceneLastFrameUrl: string | undefined;
-      const currentSceneLastFramePath = this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: scene.id });
+      const currentSceneLastFramePath = await this.storageManager.getGcsObjectPath({ type: "scene_last_frame", sceneId: scene.id });
       if (await this.storageManager.fileExists(currentSceneLastFramePath)) {
         currentSceneLastFrameUrl = this.storageManager.getGcsUrl(currentSceneLastFramePath);
         console.log(`   ... Found last frame for continuity: ${currentSceneLastFrameUrl}`);
       }
 
-      const sceneVideoPath = this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: scene.id });
+      const sceneVideoPath = await this.storageManager.getGcsObjectPath({ type: "scene_video", sceneId: scene.id });
       if (await this.storageManager.fileExists(sceneVideoPath)) {
         console.log(`   ... Scene video already exists at ${sceneVideoPath}, skipping.`);
 
-        const generatedScene: Scene = {
+        const generatedScene = {
           ...scene,
           generatedVideoUrl: this.storageManager.getGcsUrl(sceneVideoPath),
           lastFrameUrl: scene.lastFrameUrl ?? currentSceneLastFrameUrl
-        };
+        } as GeneratedScene;
 
-        const updatedContext = this.continuityAgent.updateContinuityContext(
+        const updatedStoryboardState = this.continuityAgent.updateStoryboardState(
           generatedScene,
-          state.continuityContext,
-          state.characters
+          state.storyboardState
         );
 
         return {
           ...state,
-          generatedScenes: [ ...state.generatedScenes, generatedScene ],
           currentSceneIndex: state.currentSceneIndex + 1,
-          continuityContext: updatedContext,
+          storyboardState: updatedStoryboardState
         };
       }
 
@@ -256,9 +253,9 @@ class CinematicVideoWorkflow {
       const result = await this.sceneAgent.generateSceneWithQualityCheck(
         scene,
         enhancedPrompt,
-        state.characters,
-        state.continuityContext.previousScene,
-        state.continuityContext.previousScene?.lastFrameUrl,
+        state.storyboardState.characters,
+        undefined, // prev scene logic moved to continuity manager
+        undefined, // last frame url handling can be improved
         characterReferenceUrls,
         locationReferenceUrls
       );
@@ -272,10 +269,9 @@ class CinematicVideoWorkflow {
 
       result.scene.evaluation = result.evaluation ?? undefined;
 
-      const updatedContext = this.continuityAgent.updateContinuityContext(
+      const updatedStoryboardState = this.continuityAgent.updateStoryboardState(
         result.scene,
-        state.continuityContext,
-        state.characters
+        state.storyboardState
       );
 
       const newGenerationRules = result.evaluation?.ruleSuggestion
@@ -284,9 +280,8 @@ class CinematicVideoWorkflow {
 
       return {
         ...state,
-        generatedScenes: [ ...state.generatedScenes, result.scene ],
         currentSceneIndex: state.currentSceneIndex + 1,
-        continuityContext: updatedContext,
+        storyboardState: updatedStoryboardState,
         generationRules: newGenerationRules,
         refinedRules: refinedRules,
       };
@@ -294,8 +289,9 @@ class CinematicVideoWorkflow {
 
     workflow.addNode("render_video", async (state: GraphState) => {
       console.log("\n🎥 PHASE 4: Rendering Final Video...");
+      if (!state.storyboardState) return state;
 
-      const videoPaths = state.generatedScenes
+      const videoPaths = state.storyboardState.scenes
         .map(s => s.generatedVideoUrl)
         .filter((url): url is string => !!url);
 
@@ -325,16 +321,11 @@ class CinematicVideoWorkflow {
 
     workflow.addNode("finalize", async (state: GraphState) => {
       console.log("\n✅ PHASE 4: Finalizing Workflow...");
-      console.log(`   Total scenes generated: ${state.generatedScenes.length}`);
+      console.log(`   Total scenes generated: ${state.storyboardState?.scenes.length}`);
 
-      const outputPath = this.storageManager.getGcsObjectPath({ type: "final_output" });
+      const outputPath = await this.storageManager.getGcsObjectPath({ type: "final_output" });
       await this.storageManager.uploadJSON(
-        {
-          storyboard: state.storyboard,
-          characters: state.characters,
-          locations: state.locations,
-          generatedScenes: state.generatedScenes,
-        },
+        state.storyboardState || {},
         outputPath
       );
 
@@ -357,8 +348,8 @@ class CinematicVideoWorkflow {
     workflow.addEdge("generate_location_refs" as any, "process_scene" as any);
 
     workflow.addConditionalEdges("process_scene" as any, (state: GraphState) => {
-      if (!state.storyboard) return "finalize";
-      if (state.currentSceneIndex >= state.storyboard.scenes.length) {
+      if (!state.storyboardState) return "finalize";
+      if (state.currentSceneIndex >= state.storyboardState.scenes.length) {
         return "render_video";
       }
       return "process_scene";
@@ -374,7 +365,10 @@ class CinematicVideoWorkflow {
     console.log(`🚀 Executing Cinematic Video Generation Workflow for videoId: ${this.videoId}`);
     console.log("=".repeat(60));
 
-    let initialState: GraphState;
+    // Initialize storage manager to sync state from GCS
+    await this.storageManager.initialize();
+
+    let initialState: InitialGraphState;
     let audioGcsUri: string | undefined;
     const hasAudio = !!localAudioPath;
 
@@ -387,12 +381,12 @@ class CinematicVideoWorkflow {
 
     try {
       console.log("   Checking for existing storyboard...");
-      const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
+      const storyboardPath = await this.storageManager.getGcsObjectPath({ type: "storyboard" });
       const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
       console.log("   Found existing storyboard. Resuming workflow.");
 
       const characterPromises = storyboard.characters.map(async (char) => {
-        const charImgPath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
+        const charImgPath = await this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
         if (await this.storageManager.fileExists(charImgPath)) {
           console.log(`   ... Character image for ${char.name} already exists, skipping.`);
           const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
@@ -402,7 +396,7 @@ class CinematicVideoWorkflow {
       });
 
       const locationPromises = storyboard.locations.map(async (loc) => {
-        const locImgPath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
+        const locImgPath = await this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
         if (await this.storageManager.fileExists(locImgPath)) {
           console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
           const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
@@ -414,20 +408,21 @@ class CinematicVideoWorkflow {
       const characters = await Promise.all(characterPromises);
       const locations = await Promise.all(locationPromises);
 
+      // Update storyboard with generated asset references
+      const updatedStoryboard = {
+        ...storyboard,
+        characters,
+        locations,
+      };
+
       initialState = {
         initialPrompt: localAudioPath || '',
         creativePrompt: creativePrompt || '',
         hasAudio,
-        storyboard,
-        characters,
-        locations,
+        storyboard: updatedStoryboard,
+        storyboardState: updatedStoryboard, 
         currentSceneIndex: 0,
-        generatedScenes: [],
         audioGcsUri,
-        continuityContext: {
-          characters: new Map(),
-          locations: new Map(),
-        },
         errors: [],
         generationRules: [],
         refinedRules: [],
@@ -444,14 +439,6 @@ class CinematicVideoWorkflow {
         creativePrompt,
         hasAudio,
         currentSceneIndex: 0,
-        generatedScenes: [],
-        characters: [],
-        locations: [],
-        audioGcsUri,
-        continuityContext: {
-          characters: new Map(),
-          locations: new Map(),
-        },
         errors: [],
         generationRules: [],
         refinedRules: [],
@@ -505,7 +492,7 @@ async function main() {
     const result = await workflow.execute(audioPath, creativePrompt);
     console.log("\n" + "=".repeat(60));
     console.log("✅ Workflow completed successfully!");
-    console.log(`   Generated ${result.generatedScenes.length} scenes`);
+    console.log(`   Generated ${result.storyboardState.scenes.length} scenes`);
   } catch (error) {
     console.error("\n❌ Workflow failed:", error);
     process.exit(1);

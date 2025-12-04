@@ -3,8 +3,64 @@ import { z } from "zod";
 export const zodToJSONSchema = (schema: z.ZodType) => z.toJSONSchema(schema);
 
 // ============================================================================
+// QUALITY EVALUATION SCHEMAS
+// ============================================================================
+
+export const QualityScoreSchema = z.object({
+  rating: z.enum([ "PASS", "MINOR_ISSUES", "MAJOR_ISSUES", "FAIL" ]),
+  weight: z.number(),
+  details: z.string(),
+});
+export type QualityScore = z.infer<typeof QualityScoreSchema>;
+
+export const QualityIssueSchema = z.object({
+  category: z.string(),
+  severity: z.enum([ "critical", "major", "minor" ]),
+  description: z.string(),
+  videoTimestamp: z.string().optional(),
+  suggestedFix: z.string(),
+});
+export type QualityIssue = z.infer<typeof QualityIssueSchema>;
+
+export const PromptCorrectionSchema = z.object({
+  issueType: z.string(),
+  originalPromptSection: z.string(),
+  correctedPromptSection: z.string(),
+  reasoning: z.string(),
+});
+export type PromptCorrection = z.infer<typeof PromptCorrectionSchema>;
+
+export const QualityEvaluationSchema = z.object({
+  overall: z.enum([ "ACCEPT", "ACCEPT_WITH_NOTES", "REGENERATE_MINOR", "REGENERATE_MAJOR", "FAIL" ]),
+  scores: z.object({
+    narrativeFidelity: QualityScoreSchema,
+    characterConsistency: QualityScoreSchema,
+    technicalQuality: QualityScoreSchema,
+    emotionalAuthenticity: QualityScoreSchema,
+    continuity: QualityScoreSchema,
+  }),
+  issues: z.array(QualityIssueSchema),
+  feedback: z.string(),
+  promptCorrections: z.array(PromptCorrectionSchema).optional(),
+  ruleSuggestion: z.string().optional(),
+});
+export type QualityEvaluation = z.infer<typeof QualityEvaluationSchema>;
+
+// ============================================================================
 // CHARACTER SCHEMAS
 // ============================================================================
+
+export const CharacterStateSchema = z.object({
+  lastSeen: z.number().optional().describe("scene ID where character was last seen"),
+  currentAppearance: z.object({
+    hair: z.string(),
+    clothing: z.string(),
+    accessories: z.array(z.string()),
+  }).optional(),
+  position: z.string().optional().describe("character's spatial position in scene"),
+  emotionalState: z.string().optional().describe("character's current emotional state"),
+});
+export type CharacterState = z.infer<typeof CharacterStateSchema>;
 
 export const CharacterSchema = z.object({
   id: z.string().describe("unique identifier for the character (e.g. char_1)"),
@@ -19,29 +75,23 @@ export const CharacterSchema = z.object({
     distinctiveFeatures: z.array(z.string()).describe("list of distinctive features"),
   }),
   appearanceNotes: z.array(z.string()).describe("additional notes on appearance"),
+  
+  // State tracking merged into Character
+  state: CharacterStateSchema.optional(),
 });
 export type Character = z.infer<typeof CharacterSchema>;
-
-export const CharacterStateSchema = z.object({
-  lastSeen: z.number().describe("scene ID where character was last seen"),
-  currentAppearance: z.object({
-    hair: z.string(),
-    clothing: z.string(),
-    accessories: z.array(z.string()),
-  }),
-  position: z.string().describe("character's spatial position in scene"),
-  emotionalState: z.string().describe("character's current emotional state"),
-});
-export type CharacterState = z.infer<typeof CharacterStateSchema>;
-
-export const CastListSchema = z.object({
-  characters: z.array(CharacterSchema),
-});
-export type CastList = z.infer<typeof CastListSchema>;
 
 // ============================================================================
 // LOCATION SCHEMAS
 // ============================================================================
+
+export const LocationStateSchema = z.object({
+  lastUsed: z.number().optional().describe("scene ID where location was last used"),
+  lighting: z.string().optional().describe("current lighting state"),
+  weather: z.string().optional().describe("current weather conditions"),
+  timeOfDay: z.string().optional().describe("current time of day"),
+});
+export type LocationState = z.infer<typeof LocationStateSchema>;
 
 export const LocationSchema = z.object({
   id: z.string().describe("unique identifier for the location (e.g., loc_1)"),
@@ -50,16 +100,11 @@ export const LocationSchema = z.object({
   lightingConditions: z.string().describe("lighting conditions"),
   timeOfDay: z.string().describe("time of day"),
   referenceImageUrls: z.array(z.string()).describe("URLs to reference images for the location").optional(),
+
+  // State tracking merged into Location
+  state: LocationStateSchema.optional(),
 });
 export type Location = z.infer<typeof LocationSchema>;
-
-export const LocationStateSchema = z.object({
-  lastUsed: z.number().describe("scene ID where location was last used"),
-  lighting: z.string().describe("current lighting state"),
-  weather: z.string().describe("current weather conditions"),
-  timeOfDay: z.string().describe("current time of day"),
-});
-export type LocationState = z.infer<typeof LocationStateSchema>;
 
 // ============================================================================
 // AUDIO ANALYSIS SCHEMAS (Internal to AudioProcessingAgent)
@@ -110,11 +155,11 @@ export const SceneSchema = z.intersection(
     characters: z.array(z.string()).describe("list of character IDs present in the scene").default([]),
     locationId: z.string().describe("ID of the location where scene takes place"),
 
-    // Generation Fields
+    // Generation Fields (populated as the scene is processed)
     enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation with continuity details"),
     generatedVideoUrl: z.string().optional().describe("GCS URL of the generated video"),
     lastFrameUrl: z.string().optional().describe("GCS URL of the last frame extracted from video"),
-    evaluation: z.lazy(() => QualityEvaluationSchema).optional().describe("Quality evaluation result for the scene"),
+    evaluation: QualityEvaluationSchema.optional().describe("Quality evaluation result for the scene"),
   }));
 export type Scene = z.infer<typeof SceneSchema>;
 
@@ -146,37 +191,45 @@ export const StoryboardSchema = z.object({
 export type Storyboard = z.infer<typeof StoryboardSchema>;
 
 // ============================================================================
-// CONTINUITY CONTEXT
-// ============================================================================
-
-export const ContinuityContextSchema = z.object({
-  previousScene: SceneSchema.optional(),
-  characters: z.map(z.string(), CharacterStateSchema).describe("map of character ID to current state"),
-  locations: z.map(z.string(), LocationStateSchema).describe("map of location ID to current state"),
-});
-export type ContinuityContext = z.infer<typeof ContinuityContextSchema>;
-
-// ============================================================================
 // GRAPH STATE (for LangGraph workflow)
 // ============================================================================
 
-export const GraphStateSchema = z.object({
+export const InitialGraphStateSchema = z.object({
+  // Initial input
   initialPrompt: z.string().describe("path to the audio file to process (optional)"),
   creativePrompt: z.string().optional().describe("user's creative prompt with narrative, characters, settings"),
   audioGcsUri: z.string().optional().describe("GCS URI of uploaded audio file (optional)"),
   hasAudio: z.boolean().default(false).describe("whether this workflow uses audio"),
-  storyboard: StoryboardSchema.optional().describe("complete storyboard with all scenes"),
+  
+  // Static Plan (Immutable Reference)
+  storyboard: StoryboardSchema.optional().describe("The initial, immutable storyboard plan"),
+  
+  // Living State (Mutable Source of Truth)
+  storyboardState: StoryboardSchema.optional().describe("The current state of the production, updated scene by scene"),
+  
+  // Execution State
   currentSceneIndex: z.number().describe("index of the scene currently being processed"),
-  generatedScenes: z.array(SceneSchema).describe("list of scenes that have been generated"),
-  characters: z.array(CharacterSchema).describe("list of characters with reference images"),
-  locations: z.array(LocationSchema).describe("list of locations with reference images"),
-  continuityContext: ContinuityContextSchema.describe("tracking state for continuity across scenes"),
   renderedVideoUrl: z.string().optional().describe("GCS URL of final stitched video"),
   errors: z.array(z.string()).describe("list of errors encountered during workflow"),
+  
+  // Feedback Loop
   generationRules: z.array(z.string()).optional().describe("raw, unfiltered list of generation rule suggestions"),
   refinedRules: z.array(z.string()).optional().describe("consolidated, actionable list of generation rules"),
 });
+export type InitialGraphState = z.infer<typeof InitialGraphStateSchema>;
+
+export const GraphStateSchema = z.intersection(
+  InitialGraphStateSchema,
+  z.object({
+    creativePrompt: z.string().describe("user's creative prompt with narrative, characters, settings"),
+    storyboard: StoryboardSchema.describe("The initial, immutable storyboard plan"),
+    storyboardState: StoryboardSchema.describe("The current state of the production, updated scene by scene"),
+    generationRules: z.array(z.string()).describe("raw, unfiltered list of generation rule suggestions"),
+    refinedRules: z.array(z.string()).describe("consolidated, actionable list of generation rules"),
+  })
+);
 export type GraphState = z.infer<typeof GraphStateSchema>;
+
 
 // ============================================================================
 // UTILITY TYPES
@@ -298,50 +351,6 @@ export const CAMERA_MOVEMENTS = [
   "Zoom Out",
 ] as const;
 export type CameraMovement = typeof CAMERA_MOVEMENTS[ number ];
-
-// ============================================================================
-// QUALITY EVALUATION SCHEMAS
-// ============================================================================
-
-export const QualityScoreSchema = z.object({
-  rating: z.enum([ "PASS", "MINOR_ISSUES", "MAJOR_ISSUES", "FAIL" ]),
-  weight: z.number(),
-  details: z.string(),
-});
-export type QualityScore = z.infer<typeof QualityScoreSchema>;
-
-export const QualityIssueSchema = z.object({
-  category: z.string(),
-  severity: z.enum([ "critical", "major", "minor" ]),
-  description: z.string(),
-  videoTimestamp: z.string().optional(),
-  suggestedFix: z.string(),
-});
-export type QualityIssue = z.infer<typeof QualityIssueSchema>;
-
-export const PromptCorrectionSchema = z.object({
-  issueType: z.string(),
-  originalPromptSection: z.string(),
-  correctedPromptSection: z.string(),
-  reasoning: z.string(),
-});
-export type PromptCorrection = z.infer<typeof PromptCorrectionSchema>;
-
-export const QualityEvaluationSchema = z.object({
-  overall: z.enum([ "ACCEPT", "ACCEPT_WITH_NOTES", "REGENERATE_MINOR", "REGENERATE_MAJOR", "FAIL" ]),
-  scores: z.object({
-    narrativeFidelity: QualityScoreSchema,
-    characterConsistency: QualityScoreSchema,
-    technicalQuality: QualityScoreSchema,
-    emotionalAuthenticity: QualityScoreSchema,
-    continuity: QualityScoreSchema,
-  }),
-  issues: z.array(QualityIssueSchema),
-  feedback: z.string(),
-  promptCorrections: z.array(PromptCorrectionSchema).optional(),
-  ruleSuggestion: z.string().optional(),
-});
-export type QualityEvaluation = z.infer<typeof QualityEvaluationSchema>;
 
 export interface QualityConfig {
   enabled: boolean;

@@ -1,7 +1,9 @@
 export const defaultCreativePrompt = `
-A surfing content between 5 contestants at a California beach. Each contestant is a different age and has a unique surfing style.
+A surfing contest between 5 contestants at a picturesque, sandy California beach. Each contestant is a different age and has a unique surfing style.
 
 One by one, the riders fall during the contest until the last rider is left standing. Sunny day. Occassional shots of the excited contest announcers and the crowd. Sense of peril, excitement, and triumph.
+
+Must include scene: the champion surfer's moment of pure focus as they manuever and expertly surf through a collosal wave, during the bridge section of the music track. 
 `
 
 

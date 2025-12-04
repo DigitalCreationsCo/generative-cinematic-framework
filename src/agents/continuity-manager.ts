@@ -6,8 +6,8 @@ import {
     Character,
     Scene,
     Location,
-    ContinuityContext,
-    CastList,
+    Storyboard,
+    GraphState,
 } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -16,9 +16,8 @@ import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
 import { buildCharacterImagePrompt } from "../prompts/character-image-instruction";
 import { buildLocationImagePrompt } from "../prompts/location-image-instruction";
-import { buildSceneContinuityPrompt, continuitySystemPrompt, buildRefineAndEnhancePrompt } from "../prompts/continuity-instructions";
+import { buildRefineAndEnhancePrompt } from "../prompts/continuity-instructions";
 import { LlmWrapper } from "../llm";
-import { GraphState } from "../types";
 
 // ============================================================================
 // CONTINUITY MANAGER AGENT
@@ -47,8 +46,15 @@ export class ContinuityManagerAgent {
         scene: Scene,
         state: GraphState,
     ): Promise<{ enhancedPrompt: string; refinedRules: string[], startFrameUrl?: string; characterReferenceUrls?: string[]; locationReferenceUrls?: string[]; }> {
-        const { characters, locations, continuityContext, generationRules } = state;
-        const previousEvaluation = state.generatedScenes[ state.generatedScenes.length - 1 ]?.evaluation;
+        if (!state.storyboardState) throw new Error("No storyboard state available");
+        
+        const { characters, locations, scenes } = state.storyboardState;
+        const generationRules = state.generationRules || [];
+
+        // Find previous scene for continuity context
+        const previousSceneIndex = scenes.findIndex(s => s.id === scene.id) - 1;
+        const previousScene = previousSceneIndex >= 0 ? scenes[previousSceneIndex] : undefined;
+        const previousEvaluation = previousScene?.evaluation;
 
         const charactersInScene = characters.filter(char =>
             scene.characters.includes(char.id)
@@ -58,11 +64,20 @@ export class ContinuityManagerAgent {
         const locationInScene = locations.find(loc => loc.id === scene.locationId);
         const locationReferenceUrls = locationInScene?.referenceImageUrls || [];
 
+        // Build context object similar to old ContinuityContext but using new schema
+        const continuityContext = {
+            previousScene,
+            // Characters map is implicitly available via characters array with state
+            characters: new Map(characters.map(c => [c.id, c.state || {}])),
+             // Locations map is implicitly available via locations array with state
+            locations: new Map(locations.map(l => [l.id, l.state || {}]))
+        };
+
         const { prompt, parser } = buildRefineAndEnhancePrompt(
             scene,
             characters,
             continuityContext,
-            generationRules || [],
+            generationRules,
             previousEvaluation
         );
 
@@ -78,7 +93,7 @@ export class ContinuityManagerAgent {
         return {
             enhancedPrompt,
             refinedRules,
-            startFrameUrl: continuityContext.previousScene?.lastFrameUrl,
+            startFrameUrl: previousScene?.lastFrameUrl,
             characterReferenceUrls,
             locationReferenceUrls,
         };
@@ -139,6 +154,17 @@ export class ContinuityManagerAgent {
                 updatedCharacters.push({
                     ...character,
                     referenceImageUrls: [ imageUrl ],
+                    // Initialize state
+                    state: {
+                        lastSeen: undefined,
+                        currentAppearance: {
+                            hair: character.physicalTraits.hair,
+                            clothing: character.physicalTraits.clothing,
+                            accessories: character.physicalTraits.accessories,
+                        },
+                        position: "unknown",
+                        emotionalState: "neutral"
+                    }
                 });
 
                 console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
@@ -148,6 +174,16 @@ export class ContinuityManagerAgent {
                 updatedCharacters.push({
                     ...character,
                     referenceImageUrls: [],
+                    state: {
+                        lastSeen: undefined,
+                        currentAppearance: {
+                            hair: character.physicalTraits.hair,
+                            clothing: character.physicalTraits.clothing,
+                            accessories: character.physicalTraits.accessories,
+                        },
+                        position: "unknown",
+                        emotionalState: "neutral"
+                    }
                 });
             }
         }
@@ -209,6 +245,13 @@ export class ContinuityManagerAgent {
                 updatedLocations.push({
                     ...location,
                     referenceImageUrls: [ imageUrl ],
+                    // Initialize state
+                    state: {
+                        lastUsed: undefined,
+                        lighting: location.lightingConditions,
+                        weather: "neutral",
+                        timeOfDay: location.timeOfDay
+                    }
                 });
 
                 console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
@@ -218,75 +261,72 @@ export class ContinuityManagerAgent {
                 updatedLocations.push({
                     ...location,
                     referenceImageUrls: [],
+                    state: {
+                        lastUsed: undefined,
+                        lighting: location.lightingConditions,
+                        weather: "neutral",
+                        timeOfDay: location.timeOfDay
+                    }
                 });
             }
         }
         return updatedLocations;
     }
 
-    async enhanceScenePrompt(
+    updateStoryboardState(
         scene: Scene,
-        characters: Character[],
-        context: ContinuityContext
-    ): Promise<string> {
-
-        const characterDetails = scene.characters
-            .map((charId) => {
-                const char = characters.find((c) => c.id === charId);
-                if (!char) return "";
-
-                const state = context.characters.get(charId);
-                return `
-    Character: ${char.name} (ID: ${char.id})
-    - Reference Images: ${(char.referenceImageUrls || []).join(", ")}
-    - Hair: ${state?.currentAppearance.hair || char.physicalTraits.hair}
-    - Clothing: ${state?.currentAppearance.clothing || char.physicalTraits.clothing}
-    - Accessories: ${(state?.currentAppearance.accessories || char.physicalTraits.accessories).join(", ")}
-    - Last seen in scene ${state?.lastSeen || "N/A"}
-    - Current position: ${state?.position || "unknown"}
-    - Emotional state: ${state?.emotionalState || "neutral"}`;
-            })
-            .join("\n");
-
-        const contextInfo = context.previousScene
-            ? `
-    Previous Scene (${context.previousScene.id}):
-    - Description: ${context.previousScene.description}
-    - Lighting: ${context.previousScene.lighting}
-    - Camera: ${context.previousScene.cameraMovement}
-    - Last frame available at: ${context.previousScene.lastFrameUrl || "N/A"}`
-            : "This is the first scene.";
-
-        const userPrompt = buildSceneContinuityPrompt(scene, characterDetails, contextInfo);
-
-        const response = await this.llm.generateContent(buildllmParams({
-            contents: [ continuitySystemPrompt, userPrompt ]
-        })); 0;
-        return cleanJsonOutput(response.text || "");
-    }
-
-    updateContinuityContext(
-        scene: Scene,
-        context: ContinuityContext,
-        characters: Character[]
-    ): ContinuityContext {
-        scene.characters.forEach((charId) => {
-            const char = characters.find((c) => c.id === charId);
-            if (!char) return;
-
-            context.characters.set(charId, {
-                lastSeen: scene.id,
-                currentAppearance: {
-                    hair: char.physicalTraits.hair,
-                    clothing: char.physicalTraits.clothing,
-                    accessories: char.physicalTraits.accessories,
-                },
-                position: scene.description.includes("left") ? "left" : "center",
-                emotionalState: scene.mood,
-            });
+        currentStoryboardState: Storyboard
+    ): Storyboard {
+        // Create a deep copy or map new arrays to avoid mutation if desired, 
+        // though simple object spread is often enough if nested objects are replaced.
+        
+        const updatedCharacters = currentStoryboardState.characters.map((char: Character) => {
+            if (scene.characters.includes(char.id)) {
+                return {
+                    ...char,
+                    state: {
+                        lastSeen: scene.id,
+                        currentAppearance: {
+                            hair: char.physicalTraits.hair,
+                            clothing: char.physicalTraits.clothing,
+                            accessories: char.physicalTraits.accessories,
+                        },
+                        position: scene.description.includes("left") ? "left" : "center", // Simple heuristic
+                        emotionalState: scene.mood,
+                    }
+                };
+            }
+            return char;
         });
 
-        context.previousScene = scene;
-        return context;
+        const updatedLocations = currentStoryboardState.locations.map((loc: Location) => {
+             if (loc.id === scene.locationId) {
+                 return {
+                     ...loc,
+                     state: {
+                         lastUsed: scene.id,
+                         lighting: scene.lighting,
+                         weather: "neutral", // Could be parsed from scene desc
+                         timeOfDay: "neutral" // Could be parsed
+                     }
+                 }
+             }
+             return loc;
+        });
+        
+        // Update the specific scene in the scenes array with the latest generation data
+        const updatedScenes = currentStoryboardState.scenes.map((s: Scene) => {
+            if (s.id === scene.id) {
+                return scene;
+            }
+            return s;
+        });
+
+        return {
+            ...currentStoryboardState,
+            characters: updatedCharacters,
+            locations: updatedLocations,
+            scenes: updatedScenes
+        };
     }
 }
