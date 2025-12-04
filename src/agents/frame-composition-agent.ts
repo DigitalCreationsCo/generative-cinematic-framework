@@ -1,6 +1,7 @@
 import { GoogleGenAI, Modality, Part } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { LlmWrapper } from "../llm";
+import { buildllmParams } from "../llm/google/llm-params";
 
 export class FrameCompositionAgent {
     private imageModel: LlmWrapper;
@@ -38,17 +39,17 @@ export class FrameCompositionAgent {
         const textPrompt: Part = { text: `Compose a new cinematic frame. Use the main image (input 0) for background, mood, and context. Introduce the character(s) from the reference images (inputs 1+) into this scene, ensuring their appearance is consistent. The new frame should be a natural continuation of the main image's action and composition.` };
 
         const outputMimeType = "image/png";
-        const result = await this.imageModel.generateContent({
+        const result = await this.imageModel.generateContent(buildllmParams({
             model: "gemini-3-pro-image-preview",
             contents: [ textPrompt, ...lastFrameInput, ...characterReferenceInputs ],
             config: {
-                candidateCount: 1,
                 responseModalities: [ Modality.IMAGE ],
                 imageConfig: {
                     outputMimeType: outputMimeType
                 }
             }
-        });
+        })
+    );
 
         if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
             throw new Error("Image generation failed to return any images.");

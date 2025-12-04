@@ -68,17 +68,16 @@ export class CompositionalAgent {
       context += `SCENES TO ENRICH (Batch ${batchNum}):\n${JSON.stringify(chunkScenes, null, 2)}`;
 
       const llmCall = async () => {
-        const response = await this.llm.generateContent({
-          model: "gemini-3-pro-preview",
+        const response = await this.llm.generateContent(buildllmParams({
           contents: [
             { role: 'user', parts: [ { text: systemPrompt } ] },
             { role: 'user', parts: [ { text: context } ] }
           ],
           config: {
             responseJsonSchema: zodToJSONSchema(ScenesOnlySchema),
-            responseMimeType: "application/json",
           }
-        });
+        })
+      );
         const content = response.text;
         if (!content) throw new Error("No content generated from LLM");
 
@@ -144,17 +143,16 @@ export class CompositionalAgent {
     `;
 
     const llmCall = async () => {
-      const response = await this.llm.generateContent({
-        model: "gemini-3-pro-preview",
+      const response = await this.llm.generateContent(buildllmParams({
         contents: [
           { role: 'user', parts: [ { text: systemPrompt } ] },
           { role: 'user', parts: [ { text: context } ] }
         ],
         config: {
           responseJsonSchema: zodToJSONSchema(InitialContextSchema),
-          responseMimeType: "application/json",
         }
-      });
+      })
+      );
       const content = response.text;
       if (!content) throw new Error("No content generated from LLM for initial context");
 
@@ -277,18 +275,17 @@ ${creativePrompt}
 Generate a complete cinematic storyboard for this concept.`;
 
     const llmCall = async () => {
-      const response = await this.llm.generateContent({
-        model: "gemini-3-pro-preview",
+      const response = await this.llm.generateContent(buildllmParams({
         contents: [
           { role: 'user', parts: [ { text: systemPrompt } ] },
           { role: 'user', parts: [ { text: userMessage } ] }
         ],
         config: {
           responseJsonSchema: jsonSchema,
-          responseMimeType: "application/json",
           temperature: 0.8,
         }
-      });
+      })
+    );
 
       const content = response.text;
       if (!content) throw new Error("No content generated from LLM");

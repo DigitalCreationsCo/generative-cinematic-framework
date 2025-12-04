@@ -10,6 +10,7 @@ import { cleanJsonOutput, formatTime, roundToValidDuration } from "../utils";
 import ffmpeg from "fluent-ffmpeg";
 import { buildAudioProcessingInstruction } from "../prompts/audio-processing-instruction";
 import { LlmWrapper } from "../llm";
+import { buildllmParams } from "../llm/google/llm-params";
 
 export class AudioProcessingAgent {
     private genAI: LlmWrapper;
@@ -89,8 +90,7 @@ export class AudioProcessingAgent {
             jsonSchema
         );
 
-        const result = await this.genAI.generateContent({
-            model: "gemini-3-pro-preview",
+        const result = await this.genAI.generateContent(buildllmParams({
             contents: [
                 {
                     role: "user",
@@ -102,11 +102,10 @@ export class AudioProcessingAgent {
                 },
             ],
             config: {
-                candidateCount: 1,
-                responseMimeType: "application/json",
                 responseJsonSchema: jsonSchema,
             }
-        });
+        })
+        );
 
         return result;
     }

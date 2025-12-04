@@ -428,8 +428,8 @@ class CinematicVideoWorkflow {
         refinedRules: [],
       };
     } catch (error) {
-      console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
       console.error('Error: ', error);
+      console.log("   No existing storyboard found or error loading it. Starting fresh workflow.");
       if (!creativePrompt) {
         throw new Error("Cannot start new workflow without creativePrompt.");
       }

@@ -304,7 +304,6 @@ export class SceneGeneratorAgent {
             `;
 
             const response = await this.llm.generateContent(buildllmParams({
-                model: 'gemini-3-pro-preview',
                 contents: [
                     { role: 'user', parts: [{ text: prompt }] }
                 ],

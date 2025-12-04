@@ -4,13 +4,14 @@ export const buildllmParams = (params: { contents: GenerateContentParameters[ 'c
     model: "gemini-3-pro-preview",
     ...params,
     config: {
+        candidateCount: 1,
         responseMimeType: "application/json",
         responseModalities: [ Modality.TEXT ],
         safetySettings: [
             {
                 category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                method: HarmBlockMethod.SEVERITY,
+                threshold: HarmBlockThreshold.OFF,
+                method: HarmBlockMethod.HARM_BLOCK_METHOD_UNSPECIFIED,
             }
         ],
         ...params.config
