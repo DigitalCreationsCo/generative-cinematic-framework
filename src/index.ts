@@ -23,6 +23,8 @@ import {
   QualityEvaluation,
   GeneratedScene,
   InitialGraphState,
+  SceneGenerationMetric,
+  WorkflowMetrics,
 } from "./types";
 import { SceneGeneratorAgent } from "./agents/scene-generator";
 import { CompositionalAgent } from "./agents/compositional-agent";
@@ -35,6 +37,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { defaultCreativePrompt } from "./prompts/default-creative-prompt";
 import { imageModelName, textModelName, videoModelName } from "./llm/google/models";
+import { calculateLearningTrends } from "./utils";
 
 class CinematicVideoWorkflow {
   private graph: StateGraph<GraphState>;
@@ -290,13 +293,13 @@ class CinematicVideoWorkflow {
       const sceneMetric: SceneGenerationMetric = {
         sceneId: scene.id,
         attempts: result.attempts,
-        bestAttempt: result.attempts, // Simplified for now
+        bestAttempt: result.attempts, 
         finalScore: result.finalScore,
-        duration: 0, // Placeholder for now
+        duration: scene.duration,
         ruleAdded: !!result.evaluation?.ruleSuggestion
       };
 
-      const metrics = {
+      const metrics: WorkflowMetrics = {
         sceneMetrics: [ ...(state.metrics?.sceneMetrics || []), sceneMetric ],
       };
 
