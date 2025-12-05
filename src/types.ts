@@ -277,15 +277,6 @@ export interface ContinuityCheck {
   issues: string[];
 }
 
-export interface VideoGenerationConfig {
-  resolution: "480p" | "720p" | "1080p";
-  durationSeconds: 4 | 6 | 8;
-  numberOfVideos: number;
-  personGeneration: "ALLOW_ALL" | "DONT_ALLOW";
-  generateAudio: boolean;
-  negativePrompt?: string;
-}
-
 export type GeneratedScene = Scene & {
   enhancedPrompt: string;
   generatedVideoUrl: string;

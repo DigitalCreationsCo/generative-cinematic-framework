@@ -388,7 +388,7 @@ export class SceneGeneratorAgent {
                 durationSeconds,
                 numberOfVideos: 1,
                 personGeneration: PersonGeneration.ALLOW_ALL,
-                negativePrompt: "celebrity, famous person, photorealistic representation of real person, distorted face, watermark, text, bad quality",
+                negativePrompt: "children, celebrity, famous person, photorealistic representation of real person, distorted face, watermark, text, bad quality",
             }
         });
 
