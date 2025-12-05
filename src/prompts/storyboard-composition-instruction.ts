@@ -1,3 +1,5 @@
+export const promptVersion = "2.0.0"
+
 import { z } from "zod";
 import { SceneSchema, StoryboardSchema } from "../types";
 
@@ -121,3 +123,4 @@ Identify ALL distinct settings:
 - Each location needs vivid sensory description (sights, implied sounds, atmosphere)
 
 Return JSON exactly matching this schema: ${JSON.stringify(jsonSchema, null, 2)}`;
+

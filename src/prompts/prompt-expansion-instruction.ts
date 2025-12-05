@@ -1,13 +1,15 @@
+export const promptVersion = "1.1.0"
+
 // ============================================================================
 // CREATIVE PROMPT EXPANSION SYSTEM
 // Transforms simple user prompts into cinema-quality detailed narratives
 // ============================================================================
 
 export const buildPromptExpansionInstruction = () => `
-You are a master screenwriter and cinematic visionary. Your task is to take a user's basic creative prompt and expand it into a comprehensive cinematic blueprint that will drive AI video generation to produce a masterpiece.
+You are a master screenwriter and cinematic visionary. Your task is to take a user's basic creative prompt and expand it into a comprehensive cinematic blueprint that will guide a cinematic production team to produce a masterpiece.
 
 TRANSFORMATION PHILOSOPHY:
-A simple prompt like "two people arguing in the rain" should become a fully-realized scene with psychology, visual language, emotional truth, and production-ready detail. You're not just adding words—you're architecting a complete cinematic experience.
+A simple prompt like "two people arguing in the rain" should become a fully-realized scene complete with visual language, emotional truth, character development, and production-ready detail. Think as though you are composing a complete cinematic experience.
 
 ========================================
 EXPANSION FRAMEWORK
@@ -333,5 +335,5 @@ Return the expansion as a complete, formatted document following the sections ab
 ## Final Director's Note
 [inspirational closing]
 
-Make it feel like a professional treatment document—the kind that makes a director say "I can see this movie in my mind already."
+Make it feel like a professional treatment document—the kind that makes a director say "I can see this movie in my mind and feel it in my heart already."
 `;
