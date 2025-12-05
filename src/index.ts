@@ -14,7 +14,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 import { GoogleGenAI } from "@google/genai";
-import { StateGraph, END, START } from "@langchain/langgraph";
+import { StateGraph, END, START, Command } from "@langchain/langgraph";
 import {
   Character,
   Scene,
@@ -99,47 +99,64 @@ class CinematicVideoWorkflow {
       },
     });
 
-    workflow.addConditionalEdges(START, (state: GraphState) => {
+    workflow.addConditionalEdges(START, (state: InitialGraphState) => {
       if (state.storyboardState && state.storyboardState.scenes.some(s => s.generatedVideoUrl)) {
         console.log("   Resuming workflow from process_scene...");
         return "process_scene";
       }
+
+      if (state.storyboardState && (state.storyboardState.metadata as any).creativePrompt) return "generate_character_assets";
 
       return "expand_creative_prompt";
     });
 
     workflow.addNode("expand_creative_prompt", async (state: GraphState) => {
       let expandedPrompt: string;
-      if ((state.storyboard.metadata as any).creativePrompt) {
-        console.log("\n🎨 PHASE 0: Storyboard contains expanded creative prompt...");
+      if (!state.creativePrompt) throw new Error("No creative prompt was provided");
+      console.log("\n🎨 PHASE 0: Expanding Creative Prompt to Cinema Quality...");
+      console.log(`   Original prompt: ${state.creativePrompt.substring(0, 100)}...`);
 
-        expandedPrompt = (state.storyboard.metadata as any).creativePrompt;
-        
-      } else {
-        if (!state.creativePrompt) throw new Error("No creative prompt was provided");
-        console.log("\n🎨 PHASE 0: Expanding Creative Prompt to Cinema Quality...");
-        console.log(`   Original prompt: ${state.creativePrompt.substring(0, 100)}...`);
+      expandedPrompt = await this.compositionalAgent.expandCreativePrompt(state.creativePrompt);
 
-        expandedPrompt = await this.compositionalAgent.expandCreativePrompt(state.creativePrompt);
-
-        console.log(`   ✓ Expanded to ${expandedPrompt.length} characters of cinematic detail`);
-      }
+      console.log(`   ✓ Expanded to ${expandedPrompt.length} characters of cinematic detail`);
 
       return {
         ...state,
         creativePrompt: expandedPrompt,
       };
     });
-
+    
     workflow.addConditionalEdges("expand_creative_prompt" as any, (state: GraphState) => {
       if (state.hasAudio) {
-        return "create_timed_scenes_from_audio";
-      } else {
-        return "generate_storyboard_from_prompt";
+        return "create_scenes_from_audio";
       }
+      return "generate_storyboard_exclusively_from_prompt";
     });
 
-    workflow.addNode("create_timed_scenes_from_audio", async (state: GraphState) => {
+    // Non-audio workflow path
+    workflow.addEdge("generate_storyboard_exclusively_from_prompt" as any, "generate_character_assets" as any);
+
+    workflow.addNode("generate_storyboard_exclusively_from_prompt", async (state: GraphState) => {
+      if (!state.creativePrompt) throw new Error("No creative prompt available");
+      console.log("\n📋 PHASE 1: Generating Storyboard from Creative Prompt (No Audio)...");
+
+      let storyboard = await this.compositionalAgent.generateStoryboardFromPrompt(
+        state.creativePrompt
+      );
+
+      return {
+        ...state,
+        storyboard,
+        storyboardState: storyboard,
+        currentSceneIndex: 0,
+      };
+    });
+
+    // Audio-based workflow path
+    workflow.addEdge("create_scenes_from_audio" as any, "enrich_storyboard_and_scenes" as any);
+    workflow.addEdge("enrich_storyboard_and_scenes" as any, "generate_character_assets" as any);
+
+    workflow.addNode("create_scenes_from_audio", async (state: GraphState) => {
       if (!state.creativePrompt) throw new Error("No creative prompt available");
       console.log("\n📋 PHASE 1a: Creating Timed Scenes from Audio...");
       const { segments, totalDuration } = await this.audioProcessingAgent.processAudioToScenes(
@@ -151,7 +168,6 @@ class CinematicVideoWorkflow {
         ...state,
         storyboard: {
           metadata: {
-            ...state.storyboard.metadata,
             duration: totalDuration
           },
           scenes: segments,
@@ -159,31 +175,7 @@ class CinematicVideoWorkflow {
       };
     });
 
-    workflow.addNode("generate_storyboard_from_prompt", async (state: GraphState) => {
-      if (!state.creativePrompt) throw new Error("No creative prompt available");
-      console.log("\n📋 PHASE 1: Generating Storyboard from Creative Prompt (No Audio)...");
-
-      let storyboard = await this.compositionalAgent.generateStoryboardFromPrompt(
-        state.creativePrompt
-      );
-
-      storyboard = {
-        ...storyboard,
-        metadata: {
-          ...state.storyboard.metadata,
-          ...storyboard.metadata,
-        }
-      }
-
-      return {
-        ...state,
-        storyboard,
-        storyboardState: storyboard,
-        currentSceneIndex: 0,
-      };
-    });
-
-    workflow.addNode("enhance_storyboard_with_prompt", async (state: GraphState) => {
+    workflow.addNode("enrich_storyboard_and_scenes", async (state: GraphState) => {
       if (!state.storyboard || !state.storyboard.scenes) throw new Error("No timed scenes available");
       if (!state.creativePrompt) throw new Error("No creative prompt available");
       
@@ -193,14 +185,6 @@ class CinematicVideoWorkflow {
         state.creativePrompt
       );
 
-      storyboard = {
-        ...storyboard,
-        metadata: {
-          ...state.storyboard.metadata,
-          ...storyboard.metadata,
-        }
-      }
-
       return {
         ...state,
         storyboard,
@@ -209,13 +193,22 @@ class CinematicVideoWorkflow {
       };
     });
 
-    workflow.addNode("generate_character_refs", async (state: GraphState) => {
+    workflow.addNode("generate_character_assets", async (state: GraphState) => {
       if (!state.storyboardState) throw new Error("No storyboard state available");
 
       console.log("\n🎨 PHASE 2a: Generating Character References...");
-      const characters = await this.continuityAgent.generateCharacterAssets(
-        state.storyboardState.characters,
-      );
+
+      const characterPromises = state.storyboardState.characters.map(async (char) => {
+        const charImgPath = await this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
+        if (await this.storageManager.fileExists(charImgPath)) {
+          console.log(`   ... Character image for ${char.name} already exists, skipping.`);
+          const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
+          return { ...char, referenceImageUrls: [ fullGcsUrl ] };
+        }
+        return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
+      });
+
+      const characters = await Promise.all(characterPromises);
 
       return {
         ...state,
@@ -226,13 +219,21 @@ class CinematicVideoWorkflow {
       };
     });
 
-    workflow.addNode("generate_location_refs", async (state: GraphState) => {
+    workflow.addNode("generate_location_assets", async (state: GraphState) => {
       if (!state.storyboardState) throw new Error("No storyboard state available");
 
       console.log("\n🎨 PHASE 2b: Generating Location References...");
-      const locations = await this.continuityAgent.generateLocationAssets(
-        state.storyboardState.locations,
-      );
+
+      const locationPromises = state.storyboardState.locations.map(async (loc) => {
+        const locImgPath = await this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
+        if (await this.storageManager.fileExists(locImgPath)) {
+          console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
+          const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
+          return { ...loc, referenceImageUrls: [ fullGcsUrl ] };
+        }
+        return this.continuityAgent.generateLocationAssets([ loc ]).then(locs => locs[ 0 ]);
+      });
+      const locations = await Promise.all(locationPromises);
 
       return {
         ...state,
@@ -397,17 +398,8 @@ class CinematicVideoWorkflow {
       return state;
     });
 
-    // Audio-based workflow path
-    workflow.addEdge("create_timed_scenes_from_audio" as any, "enhance_storyboard_with_prompt" as any);
-    workflow.addEdge("enhance_storyboard_with_prompt" as any, "generate_character_refs" as any);
-
-    // Non-audio workflow path
-    // Note: expand_creative_prompt branches conditionally now
-    workflow.addEdge("generate_storyboard_from_prompt" as any, "generate_character_refs" as any);
-
-    // Common path for both workflows
-    workflow.addEdge("generate_character_refs" as any, "generate_location_refs" as any);
-    workflow.addEdge("generate_location_refs" as any, "process_scene" as any);
+    workflow.addEdge("generate_character_assets" as any, "generate_location_assets" as any);
+    workflow.addEdge("generate_location_assets" as any, "process_scene" as any);
 
     workflow.addConditionalEdges("process_scene" as any, (state: GraphState) => {
       if (!state.storyboardState) return "finalize";
@@ -447,47 +439,12 @@ class CinematicVideoWorkflow {
       const storyboard = await this.storageManager.downloadJSON<Storyboard>(storyboardPath);
       console.log("   Found existing storyboard. Resuming workflow.");
 
-      const characterPromises = storyboard.characters.map(async (char) => {
-        const charImgPath = await this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
-        if (await this.storageManager.fileExists(charImgPath)) {
-          console.log(`   ... Character image for ${char.name} already exists, skipping.`);
-          const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
-          return { ...char, referenceImageUrls: [ fullGcsUrl ] };
-        }
-        return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
-      });
-
-      const locationPromises = storyboard.locations.map(async (loc) => {
-        const locImgPath = await this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
-        if (await this.storageManager.fileExists(locImgPath)) {
-          console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
-          const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
-          return { ...loc, referenceImageUrls: [ fullGcsUrl ] };
-        }
-        return this.continuityAgent.generateLocationAssets([ loc ]).then(locs => locs[ 0 ]);
-      });
-
-      const characters = await Promise.all(characterPromises);
-      const locations = await Promise.all(locationPromises);
-
-      const updatedStoryboard = {
-        ...storyboard,
-        metadata: {
-          ...storyboard.metadata,
-          videoModel: (storyboard.metadata as any).videoModel ?? videoModelName,
-          imageModel: (storyboard.metadata as any).videoModel ?? imageModelName,
-          textModel: (storyboard.metadata as any).videoModel ?? textModelName,
-        },
-        characters,
-        locations,
-      };
-
       initialState = {
         initialPrompt: localAudioPath || '',
         creativePrompt: creativePrompt || '',
         hasAudio,
-        storyboard: updatedStoryboard,
-        storyboardState: updatedStoryboard,
+        storyboard,
+        storyboardState: storyboard,
         currentSceneIndex: 0,
         audioGcsUri,
         errors: [],
@@ -501,20 +458,10 @@ class CinematicVideoWorkflow {
         throw new Error("Cannot start new workflow without creativePrompt.");
       }
 
-      const newStoryboard = {
-        metadata: {
-          videoModel: videoModelName,
-          imageModel: imageModelName,
-          textModel: textModelName,
-        } as unknown as Storyboard['metadata'],
-      } as Storyboard;
-
       initialState = {
         initialPrompt: localAudioPath || '',
         creativePrompt,
         hasAudio,
-        storyboard: newStoryboard,
-        storyboardState: newStoryboard,
         currentSceneIndex: 0,
         errors: [],
         generationRules: [],

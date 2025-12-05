@@ -19,6 +19,7 @@ import { retryLlmCall, RetryConfig } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
 import { buildPromptExpansionInstruction } from "../prompts/prompt-expansion-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
+import { imageModelName, textModelName, videoModelName } from "../llm/google/models";
 
 export class CompositionalAgent {
   private llm: LlmWrapper;
@@ -92,9 +93,10 @@ export class CompositionalAgent {
         ...initialContext.metadata,
         totalScenes: storyboard.scenes.length,
         duration: storyboard.scenes.length > 0 ? storyboard.scenes[ storyboard.scenes.length - 1 ].endTime : 0,
-        // append prompt
         creativePrompt: creativePrompt,
-        
+        videoModel: (storyboard.metadata as any).videoModel ?? videoModelName,
+        imageModel: (storyboard.metadata as any).videoModel ?? imageModelName,
+        textModel: (storyboard.metadata as any).videoModel ?? textModelName,
       } as Storyboard['metadata']
     };
 
@@ -109,6 +111,7 @@ export class CompositionalAgent {
     console.log(`  - Total Scenes: ${updatedStoryboard.metadata.totalScenes}`);
     console.log(`  - Characters: ${updatedStoryboard.characters.length}`);
     console.log(`  - Locations: ${updatedStoryboard.locations.length}`);
+    console.log(`  - Creative prompt added to metadata: ${((storyboard.metadata as any).creativePrompt as string).slice(0, 50)}...`)
 
     return updatedStoryboard;
   }
@@ -297,9 +300,10 @@ Generate a complete cinematic storyboard for this concept.`;
     };
 
     const storyboard = await retryLlmCall(llmCall, undefined, { maxRetries: 3, initialDelay: 1000, ...retryConfig });
-
-    // append prompt in metadata
     (storyboard.metadata as any).creativePrompt = creativePrompt;
+    (storyboard.metadata as any).videoModel = videoModelName;
+    (storyboard.metadata as any).videoModel = imageModelName;
+    (storyboard.metadata as any).videoModel = textModelName;
 
     // Save storyboard
     const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
@@ -311,6 +315,7 @@ Generate a complete cinematic storyboard for this concept.`;
     console.log(`  - Total Scenes: ${storyboard.metadata.totalScenes}`);
     console.log(`  - Characters: ${storyboard.characters.length}`);
     console.log(`  - Locations: ${storyboard.locations.length}`);
+    console.log(`  - Creative prompt added to metadata: ${((storyboard.metadata as any).creativePrompt as string).slice(0, 50)}...`)
 
     return storyboard;
   }

@@ -32,12 +32,12 @@ graph TD
     B -- No --> C[expand_creative_prompt];
     B -- Yes --> D[process_scene];
     C --> E{Has Audio?};
-    E -- Yes --> F[create_timed_scenes_from_audio];
-    F --> G[enhance_storyboard_with_prompt];
-    E -- No --> H[generate_storyboard_from_prompt];
-    G --> I[generate_character_refs];
-    H --> I[generate_character_refs];
-    I --> J[generate_location_refs];
+    E -- Yes --> F[create_scenes_from_audio];
+    F --> G[enrich_storyboard_and_scenes];
+    E -- No --> H[generate_storyboard_exclusively_from_prompt];
+    G --> I[generate_character_assets];
+    H --> I[generate_character_assets];
+    I --> J[generate_location_assets];
     J --> D;
     D --> K{All Scenes Processed?};
     K -- No --> D;

@@ -32,6 +32,8 @@ export async function retryLlmCall<T, U>(
 
     while (retries < config.maxRetries) {
         try {
+            console.log('Calling LLM with params: ');
+            console.log(JSON.stringify(params, null, 2));
             return await llmCall(params);
         } catch (error) {
             retries++;

@@ -10,7 +10,7 @@ import {
     GraphState,
 } from "../types";
 import { GCPStorageManager } from "../storage-manager";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { buildllmParams } from "../llm/google/llm-params";
 import { cleanJsonOutput } from "../utils";
 import { FrameCompositionAgent } from "./frame-composition-agent";
@@ -138,6 +138,15 @@ export class ContinuityManagerAgent {
                     },
                     {
                         initialDelay: this.ASSET_GEN_COOLDOWN_MS,
+                    },
+                    async (error: any, attempt: number, currentParams) => {
+                        if (error instanceof ApiError) {
+                            if (error.message.includes("Resource exhausted") && attempt > 1) {
+                                currentParams.model = "imagen-4.0-generate-001";
+                                console.log('image model now using imagen-4.0-generate-001')
+                            }
+                        }
+                        return currentParams;
                     }
                 );
 
@@ -229,6 +238,15 @@ export class ContinuityManagerAgent {
                     },
                     {
                         initialDelay: this.ASSET_GEN_COOLDOWN_MS,
+                    },
+                    async (error: any, attempt: number, currentParams) => {
+                        if (error instanceof ApiError) {
+                            if (error.message.includes("Resource exhausted") && attempt > 1) {
+                                currentParams.model = "imagen-4.0-generate-001";
+                                console.log('image model now using imagen-4.0-generate-001');
+                            }
+                        }
+                        return currentParams;
                     }
                 );
 
