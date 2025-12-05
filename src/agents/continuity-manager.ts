@@ -194,48 +194,34 @@ export class ContinuityManagerAgent {
 
                     const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
                     if (characterIndex > -1) {
-                        updatedCharacters[characterIndex] = {
-                            ...updatedCharacters[characterIndex],
-                            referenceImageUrls: [ imageUrl ],
-                            state: {
-                                lastSeen: undefined,
-                                currentAppearance: {
-                                    hair: character.physicalTraits.hair,
-                                    clothing: character.physicalTraits.clothing,
-                                    accessories: character.physicalTraits.accessories,
-                                },
-                                position: "unknown",
-                                emotionalState: "neutral"
-                            }
-                        };
+                        updatedCharacters[characterIndex].referenceImageUrls = [ imageUrl ];
                     }
-
-
                     console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
 
                 } catch (error) {
                     console.error(`    ✗ Failed to generate image for ${character.name}:`, error);
                     const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
                     if (characterIndex > -1) {
-                        updatedCharacters[characterIndex] = {
-                            ...updatedCharacters[characterIndex],
-                            referenceImageUrls: [],
-                             state: {
-                                lastSeen: undefined,
-                                currentAppearance: {
-                                    hair: character.physicalTraits.hair,
-                                    clothing: character.physicalTraits.clothing,
-                                    accessories: character.physicalTraits.accessories,
-                                },
-                                position: "unknown",
-                                emotionalState: "neutral"
-                            }
-                        };
+                        updatedCharacters[characterIndex].referenceImageUrls = [];
                     }
                 }
             }
         }
-        return updatedCharacters;
+
+        // Ensure all characters have their state initialized.
+        return updatedCharacters.map(character => ({
+            ...character,
+            state: {
+                lastSeen: undefined,
+                currentAppearance: {
+                    hair: character.physicalTraits.hair,
+                    clothing: character.physicalTraits.clothing,
+                    accessories: character.physicalTraits.accessories,
+                },
+                position: "unknown",
+                emotionalState: "neutral"
+            }
+        }));
     }
 
     async generateLocationAssets(
@@ -325,39 +311,30 @@ export class ContinuityManagerAgent {
 
                     const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
                     if (locationIndex > -1) {
-                        updatedLocations[locationIndex] = {
-                            ...updatedLocations[locationIndex],
-                            referenceImageUrls: [ imageUrl ],
-                            state: {
-                                lastUsed: undefined,
-                                lighting: location.lightingConditions,
-                                weather: "neutral",
-                                timeOfDay: location.timeOfDay
-                            }
-                        };
+                        updatedLocations[locationIndex].referenceImageUrls = [ imageUrl ];
                     }
-
                     console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
 
                 } catch (error) {
                     console.error(`    ✗ Failed to generate image for ${location.name}:`, error);
                     const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
                      if (locationIndex > -1) {
-                        updatedLocations[locationIndex] = {
-                            ...updatedLocations[locationIndex],
-                            referenceImageUrls: [],
-                            state: {
-                                lastUsed: undefined,
-                                lighting: location.lightingConditions,
-                                weather: "neutral",
-                                timeOfDay: location.timeOfDay
-                            }
-                        };
+                        updatedLocations[locationIndex].referenceImageUrls = [];
                     }
                 }
             }
         }
-        return updatedLocations;
+
+        // Ensure all locations have their state initialized.
+        return updatedLocations.map(location => ({
+            ...location,
+            state: {
+                lastUsed: undefined,
+                lighting: location.lightingConditions,
+                weather: "neutral",
+                timeOfDay: location.timeOfDay
+            }
+        }));
     }
 
     updateStoryboardState(

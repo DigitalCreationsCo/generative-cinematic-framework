@@ -31,8 +31,6 @@ export async function retryLlmCall<T, U>(
     let params = initialParams;
 
     while (retries < config.maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-
         try {
             console.log('Calling LLM with params: ');
             console.log(JSON.stringify(params, null, 2));
@@ -51,8 +49,9 @@ export async function retryLlmCall<T, U>(
                 }
             }
 
-            delay *= config.backoffFactor;
             console.log(`LLM call failed. Retrying in ${delay}ms...`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= config.backoffFactor;
         }
     }
 
