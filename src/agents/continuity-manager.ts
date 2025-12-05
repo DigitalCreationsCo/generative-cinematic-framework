@@ -121,7 +121,7 @@ export class ContinuityManagerAgent {
 
             if (exists) {
                 console.log(`  → Found existing image for: ${character.name}`);
-                const imageUrl = this.storageManager.getPublicUrl(imagePath);
+                const imageUrl = this.storageManager.getGcsUrl(imagePath);
                 const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
                 if (characterIndex > -1) {
                     updatedCharacters[characterIndex] = {
@@ -238,7 +238,7 @@ export class ContinuityManagerAgent {
 
             if (exists) {
                 console.log(`  → Found existing image for: ${location.name}`);
-                const imageUrl = this.storageManager.getPublicUrl(imagePath);
+                const imageUrl = this.storageManager.getGcsUrl(imagePath);
                 const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
                 if (locationIndex > -1) {
                     updatedLocations[locationIndex] = {
