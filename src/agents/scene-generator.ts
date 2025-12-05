@@ -1,3 +1,4 @@
+
 import { PersonGeneration, Video, Image, VideoGenerationReferenceType, Operation, GenerateVideosResponse } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
 import { Character, GeneratedScene, QualityEvaluationResult, Scene, SceneGenerationResult } from "../types";
@@ -98,10 +99,12 @@ export class SceneGeneratorAgent {
 
         for (let attempt = 1; attempt <= this.qualityAgent.qualityConfig.maxRetries; attempt++) {
             totalAttempts = attempt;
-
+            let evaluation: QualityEvaluationResult | null = null;
+            let score = 0;
+            let generated: GeneratedScene | null = null;
             try {
                 // Generate scene with safety retry wrapper
-                const generated = await this.generateSceneWithSafetyRetry(
+                generated = await this.generateSceneWithSafetyRetry(
                     scene,
                     enhancedPrompt,
                     attempt,
@@ -112,7 +115,7 @@ export class SceneGeneratorAgent {
                     generateAudio,
                 );
 
-                const evaluation = await this.qualityAgent.evaluateScene(
+                evaluation = await this.qualityAgent.evaluateScene(
                     scene,
                     generated.generatedVideoUrl,
                     enhancedPrompt,
@@ -121,7 +124,7 @@ export class SceneGeneratorAgent {
                     previousScene,
                 );
 
-                const score = this.qualityAgent[ 'calculateOverallScore' ](evaluation.scores);
+                score = this.qualityAgent[ 'calculateOverallScore' ](evaluation.scores);
 
                 if (score > bestScore) {
                     bestScore = score;
@@ -157,8 +160,18 @@ export class SceneGeneratorAgent {
 
             } catch (error) {
                 console.error(`   ✗ Attempt ${attempt} failed:`, error);
-                if (attempt >= this.qualityAgent.qualityConfig.maxRetries) {
-                    throw error;
+                if (evaluation && generated) {
+                    const score = this.qualityAgent['calculateOverallScore'](evaluation.scores);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestScene = generated;
+                        bestEvaluation = evaluation;
+                    }
+                }
+                if (attempt < this.qualityAgent.qualityConfig.maxRetries) {
+                    console.log(`   Retrying scene generation...`);
+                    // Optionally adjust the prompt or strategy before retrying
+                    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait before retry
                 }
             }
         }

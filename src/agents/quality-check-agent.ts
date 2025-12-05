@@ -1,16 +1,25 @@
 
-import { Scene, Character, QualityEvaluationResult, PromptCorrection, QualityConfig } from "../types";
+import { Scene, Character, QualityEvaluationResult, PromptCorrection, QualityConfig, QualityEvaluationSchema } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { buildEvaluationPrompt } from "../prompts/evaluation-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
 import { buildCorrectionPrompt } from "../prompts/prompt-correction-instruction";
 import { LlmWrapper } from "../llm";
+import { z } from "zod";
+
+const malformedJsonRepairPrompt = (malformedJson: string) => `
+The following string is not valid JSON. Please fix it and return only the valid JSON.
+Do not include any other text in your response, only the JSON object.
+Do not include the markdown characters that denote a a code block.
+
+${malformedJson}
+`;
 
 export class QualityCheckAgent {
   private llm: LlmWrapper;
   private storageManager: GCPStorageManager;
   qualityConfig: Readonly<QualityConfig>;
-    
+
   constructor(
     llm: LlmWrapper,
     storageManager: GCPStorageManager,
@@ -38,6 +47,46 @@ export class QualityCheckAgent {
   }
 
   /**
+   * Attempts to parse and validate a JSON string against a Zod schema.
+   * If parsing fails, it will try to repair the JSON string using an LLM.
+   * @param jsonString The JSON string to parse.
+   * @param schema The Zod schema to validate against.
+   * @returns The parsed and validated object.
+   * @throws An error if parsing, validation, and repair all fail.
+   */
+  private async parseAndValidateJson<T extends z.ZodTypeAny>(
+    jsonString: string,
+    schema: T
+  ): Promise<z.infer<T>> {
+    try {
+      // First attempt to parse directly
+      return schema.parse(JSON.parse(jsonString));
+    } catch (error) {
+      console.warn("   ⚠️ Initial JSON parsing failed. Attempting to repair...");
+
+      try {
+        // Attempt to repair the JSON using the LLM
+        const repairResponse = await this.llm.generateContent(buildllmParams({
+          contents: [ { role: "user", parts: [ { text: malformedJsonRepairPrompt(jsonString) } ] } ],
+          config: { temperature: 0.1 }
+        }));
+
+        if (!repairResponse.text) {
+          throw new Error("Failed to repair JSON: LLM returned no text.");
+        }
+
+        // Attempt to parse the repaired JSON
+        return schema.parse(JSON.parse(repairResponse.text));
+
+      } catch (repairError) {
+        console.error("   ✗ JSON repair failed:", repairError);
+        // Add original error as cause for better debugging
+        throw new Error(`Failed to parse and validate JSON after repair. Original error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  /**
    * Perform comprehensive quality check on generated video
    */
   async evaluateScene(
@@ -48,7 +97,7 @@ export class QualityCheckAgent {
     attempt: number,
     previousScene?: Scene,
   ): Promise<QualityEvaluationResult> {
-    
+
     console.log(`\n🔍 Quality Check: Scene ${scene.id}`);
 
     const evaluationPrompt = buildEvaluationPrompt(
@@ -59,56 +108,44 @@ export class QualityCheckAgent {
       previousScene
     );
 
-    try {
-      
-      const response = await this.llm.generateContent(buildllmParams({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: evaluationPrompt },
-              {
-                fileData: {
-                  fileUri: generatedVideoUrl,
-                  mimeType: await this.storageManager.getObjectMimeType(generatedVideoUrl) || 'video/mp4'
-                }
+    const response = await this.llm.generateContent(buildllmParams({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: evaluationPrompt },
+            {
+              fileData: {
+                fileUri: generatedVideoUrl,
+                mimeType: await this.storageManager.getObjectMimeType(generatedVideoUrl) || 'video/mp4'
               }
-            ]
-          }
-        ],
-        config: {
-          temperature: 0.3,
+            }
+          ]
         }
-      }));
+      ],
+      config: {
+        temperature: 0.3,
+      }
+    }));
 
-      if (!response.text) throw new Error("No quality evaluation generated from LLM from Quality Check Agent");
-
-      const evaluation = JSON.parse(response.text) as QualityEvaluationResult;
-      
-      const overallScore = this.calculateOverallScore(evaluation.scores);
-      evaluation.overall = this.determineOverallRating(overallScore);
-
-      this.logEvaluationResults(scene.id, evaluation, overallScore);
-
-      await this.saveEvaluation(scene.id, attempt, evaluation);
-
-      return evaluation;
-
-    } catch (error) {
-      console.error(`   ✗ Quality check failed for scene ${scene.id}:`, error);
-      
-      return {
-        overall: "ACCEPT_WITH_NOTES",
-        scores: this.getDefaultScores(),
-        issues: [{
-          category: "system",
-          severity: "minor",
-          description: "Quality check system unavailable",
-          suggestedFix: "Manual review recommended"
-        }],
-        feedback: "Quality check unavailable - defaulting to acceptance"
-      };
+    if (!response.text) {
+      throw new Error("No quality evaluation generated from LLM from Quality Check Agent");
     }
+
+    // Use the robust parsing and validation method
+    const evaluationData = await this.parseAndValidateJson(response.text, QualityEvaluationSchema);
+
+    const overallScore = this.calculateOverallScore(evaluationData.scores);
+    const overallRating = this.determineOverallRating(overallScore);
+
+    const evaluation: QualityEvaluationResult = {
+      ...evaluationData,
+      overall: overallRating,
+    };
+
+    this.logEvaluationResults(scene.id, evaluation, overallScore);
+    await this.saveEvaluation(scene.id, attempt, evaluation);
+    return evaluation;
   }
 
   /**
@@ -121,34 +158,34 @@ export class QualityCheckAgent {
     characters: Character[],
     attempt: number
   ): Promise<string> {
-    
+
     if (!evaluation.promptCorrections || evaluation.promptCorrections.length === 0) {
-        console.log(`   🔄 Attempt ${attempt + 1}: Retrying with original prompt`);
-        return originalPrompt;
-      }
-  
-      console.log(`   🔧 Attempt ${attempt + 1}: Applying ${evaluation.promptCorrections.length} corrections`);
-  
-      const correctionPrompt = buildCorrectionPrompt(originalPrompt, scene, evaluation.promptCorrections);
-  
-      try {
-        const response = await this.llm.generateContent(buildllmParams({
-          contents: [{ role: "user", parts: [{ text: correctionPrompt }] }],
-          config: { temperature: 0.5 }
-        }));
-  
-        if (!response.text) throw new Error("No correction prompt generated from LLM from Quality Check Agent");
-  
-        const correctedPrompt = response.text.trim();
-        
-        console.log(`   ✓ Prompt corrected: ${originalPrompt.length} → ${correctedPrompt.length} chars`);
-        
-        return correctedPrompt;
-  
-      } catch (error) {
-        console.error("   ✗ Failed to apply prompt corrections:", error);
-        return originalPrompt; // Fallback to original
-      }
+      console.log(`   🔄 Attempt ${attempt + 1}: Retrying with original prompt`);
+      return originalPrompt;
+    }
+
+    console.log(`   🔧 Attempt ${attempt + 1}: Applying ${evaluation.promptCorrections.length} corrections`);
+
+    const correctionPrompt = buildCorrectionPrompt(originalPrompt, scene, evaluation.promptCorrections);
+
+    try {
+      const response = await this.llm.generateContent(buildllmParams({
+        contents: [ { role: "user", parts: [ { text: correctionPrompt } ] } ],
+        config: { temperature: 0.5 }
+      }));
+
+      if (!response.text) throw new Error("No correction prompt generated from LLM from Quality Check Agent");
+
+      const correctedPrompt = response.text.trim();
+
+      console.log(`   ✓ Prompt corrected: ${originalPrompt.length} → ${correctedPrompt.length} chars`);
+
+      return correctedPrompt;
+
+    } catch (error) {
+      console.error("   ✗ Failed to apply prompt corrections:", error);
+      return originalPrompt; // Fallback to original
+    }
   }
 
   /**
@@ -166,13 +203,13 @@ export class QualityCheckAgent {
     let totalWeight = 0;
 
     for (const key in scores) {
-        if (Object.prototype.hasOwnProperty.call(scores, key)) {
-            const score = scores[key as keyof typeof scores];
-            totalScore += ratingToScore[score.rating] * score.weight;
-            totalWeight += score.weight;
-        }
+      if (Object.prototype.hasOwnProperty.call(scores, key)) {
+        const score = scores[ key as keyof typeof scores ];
+        totalScore += ratingToScore[ score.rating ] * score.weight;
+        totalWeight += score.weight;
+      }
     }
-    
+
     return totalWeight > 0 ? totalScore / totalWeight : 0;
   }
 
@@ -185,7 +222,7 @@ export class QualityCheckAgent {
     if (score >= this.qualityConfig.majorIssueThreshold) return "REGENERATE_MINOR";
     return "FAIL";
   }
-  
+
   /**
    * Internal: Log attempt result concisely.
    */
@@ -194,7 +231,7 @@ export class QualityCheckAgent {
     const icon = score >= this.qualityConfig.acceptThreshold ? '✓' : '⚠';
     console.log(`   ${icon} Attempt ${attempt}: ${scorePercent}% (${rating})`);
   }
-  
+
   /**
    * Log evaluation results
    */
@@ -204,12 +241,12 @@ export class QualityCheckAgent {
     overallScore: number
   ): void {
     const scorePercentage = (overallScore * 100).toFixed(1);
-    
+
     console.log(`   Overall Rating Scene ${sceneId}: ${evaluation.overall} (${scorePercentage}%)`);
-    
-    Object.entries(evaluation.scores).forEach(([category, score]) => {
-      const icon = score.rating === "PASS" ? "✓" : 
-                   score.rating === "MINOR_ISSUES" ? "⚠" : "✗";
+
+    Object.entries(evaluation.scores).forEach(([ category, score ]) => {
+      const icon = score.rating === "PASS" ? "✓" :
+        score.rating === "MINOR_ISSUES" ? "⚠" : "✗";
       console.log(`     ${icon} ${category}: ${score.rating}`);
     });
 
@@ -232,7 +269,7 @@ export class QualityCheckAgent {
     const evaluationPath = await this.storageManager.getGcsObjectPath(
       { type: "quality_evaluation", sceneId, attempt }
     );
-    
+
     await this.storageManager.uploadJSON(evaluation, evaluationPath);
   }
 
