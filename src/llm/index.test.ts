@@ -6,6 +6,7 @@ describe('LlmWrapper', () => {
     it('should proxy generateContent calls to the provider', async () => {
         const provider = {
             generateContent: vi.fn().mockResolvedValue('content'),
+            generateImages: vi.fn(),
             generateVideos: vi.fn(),
             getVideosOperation: vi.fn(),
         } as LlmProvider;
@@ -18,6 +19,7 @@ describe('LlmWrapper', () => {
     it('should proxy generateVideos calls to the provider', async () => {
         const provider = {
             generateContent: vi.fn(),
+            generateImages: vi.fn(),
             generateVideos: vi.fn().mockResolvedValue('videos'),
             getVideosOperation: vi.fn(),
         } as LlmProvider;
@@ -30,6 +32,7 @@ describe('LlmWrapper', () => {
     it('should proxy getVideosOperation calls to the provider', async () => {
         const provider = {
             generateContent: vi.fn(),
+            generateImages: vi.fn(),
             generateVideos: vi.fn(),
             getVideosOperation: vi.fn().mockResolvedValue('operation'),
         } as LlmProvider;

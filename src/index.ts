@@ -198,17 +198,9 @@ class CinematicVideoWorkflow {
 
       console.log("\n🎨 PHASE 2a: Generating Character References...");
 
-      const characterPromises = state.storyboardState.characters.map(async (char) => {
-        const charImgPath = await this.storageManager.getGcsObjectPath({ type: "character_image", characterId: char.id });
-        if (await this.storageManager.fileExists(charImgPath)) {
-          console.log(`   ... Character image for ${char.name} already exists, skipping.`);
-          const fullGcsUrl = this.storageManager.getGcsUrl(charImgPath);
-          return { ...char, referenceImageUrls: [ fullGcsUrl ] };
-        }
-        return this.continuityAgent.generateCharacterAssets([ char ]).then(chars => chars[ 0 ]);
-      });
-
-      const characters = await Promise.all(characterPromises);
+      const characters = await this.continuityAgent.generateCharacterAssets(
+        state.storyboardState.characters
+      );
 
       return {
         ...state,
@@ -224,16 +216,9 @@ class CinematicVideoWorkflow {
 
       console.log("\n🎨 PHASE 2b: Generating Location References...");
 
-      const locationPromises = state.storyboardState.locations.map(async (loc) => {
-        const locImgPath = await this.storageManager.getGcsObjectPath({ type: "location_image", locationId: loc.id });
-        if (await this.storageManager.fileExists(locImgPath)) {
-          console.log(`   ... Location image for ${loc.name} already exists, skipping.`);
-          const fullGcsUrl = this.storageManager.getGcsUrl(locImgPath);
-          return { ...loc, referenceImageUrls: [ fullGcsUrl ] };
-        }
-        return this.continuityAgent.generateLocationAssets([ loc ]).then(locs => locs[ 0 ]);
-      });
-      const locations = await Promise.all(locationPromises);
+      const locations = await this.continuityAgent.generateLocationAssets(
+        state.storyboardState.locations
+      );
 
       return {
         ...state,

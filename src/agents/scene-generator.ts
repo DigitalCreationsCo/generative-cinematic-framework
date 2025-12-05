@@ -10,7 +10,7 @@ import { formatTime, roundToValidDuration } from "../utils";
 import { retryLlmCall } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
 import { QualityCheckAgent } from "./quality-check-agent";
-import { buildSanitizePrompt } from "./safe-prompt-instructions";
+import { buildSanitizePrompt } from "../prompts/safe-prompt-instructions";
 
 export class SceneGeneratorAgent {
     private llm: LlmWrapper;

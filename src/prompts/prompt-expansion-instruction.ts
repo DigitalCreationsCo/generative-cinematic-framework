@@ -1,6 +1,6 @@
 export const promptVersion = "1.1.0"
 
-import { buildSanitizePrompt } from "../agents/safe-prompt-instructions";
+import { buildSanitizePrompt } from "./safe-prompt-instructions";
 
 // ============================================================================
 // CREATIVE PROMPT EXPANSION SYSTEM

@@ -110,98 +110,129 @@ export class ContinuityManagerAgent {
     async generateCharacterAssets(
         characters: Character[],
     ): Promise<Character[]> {
-        console.log(`\n🎨 Generating reference images for ${characters.length} characters...`);
+        console.log(`\n🎨 Checking for existing reference images for ${characters.length} characters...`);
 
-        const updatedCharacters: Character[] = [];
+        const charactersToGenerate: Character[] = [];
+        const updatedCharacters: Character[] = [ ...characters ];
 
         for (const character of characters) {
-            console.log(`  → Generating: ${character.name}`);
+            const imagePath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: character.id });
+            const exists = await this.storageManager.fileExists(imagePath);
 
-            const imagePrompt = buildCharacterImagePrompt(character);
-
-            try {
-                const outputMimeType = "image/png";
-
-                const result = await retryLlmCall(
-                    this.imageModel.generateImages.bind(this.imageModel),
-                    {
-                        model: imageModelName,
-                        contents: [ imagePrompt ],
-                        config: {
-                            candidateCount: 1,
-                            responseModalities: [ Modality.IMAGE ],
-                            seed: Math.floor(Math.random() * 1000000),
-                            imageConfig: {
-                                outputMimeType: outputMimeType
-                            }
-                        }
-                    },
-                    {
-                        initialDelay: this.ASSET_GEN_COOLDOWN_MS,
-                    },
-                    async (error: any, attempt: number, currentParams) => {
-                        if (error instanceof ApiError) {
-                            if (error.message.includes("Resource exhausted") && attempt > 1) {
-                                currentParams.model = "imagen-4.0-generate-001";
-                                console.log('image model now using imagen-4.0-generate-001')
-                            }
-                        }
-                        return currentParams;
-                    }
-                );
-
-                if (!result.generatedImages || result.generatedImages[ 0 ].image?.imageBytes) {
-                    throw new Error("Image generation failed to return any images.");
+            if (exists) {
+                console.log(`  → Found existing image for: ${character.name}`);
+                const imageUrl = this.storageManager.getPublicUrl(imagePath);
+                const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
+                if (characterIndex > -1) {
+                    updatedCharacters[characterIndex] = {
+                        ...updatedCharacters[characterIndex],
+                        referenceImageUrls: [ imageUrl ],
+                    };
                 }
+            } else {
+                console.log(`  → No image found for: ${character.name}. Queued for generation.`);
+                charactersToGenerate.push(character);
+            }
+        }
 
-                const generatedImageData = result.generatedImages[ 0 ].image?.imageBytes;
-                if (!generatedImageData) {
-                    throw new Error("Generated image is missing inline data.");
+        if (charactersToGenerate.length > 0) {
+            console.log(`\n🎨 Generating reference images for ${charactersToGenerate.length} characters...`);
+
+            for (const character of charactersToGenerate) {
+                console.log(`  → Generating: ${character.name}`);
+
+                const imagePrompt = buildCharacterImagePrompt(character);
+
+                try {
+                    const outputMimeType = "image/png";
+
+                    const result = await retryLlmCall(
+                        this.imageModel.generateContent.bind(this.imageModel),
+                        {
+                            model: imageModelName,
+                            contents: [ imagePrompt ],
+                            config: {
+                                candidateCount: 1,
+                                responseModalities: [ Modality.IMAGE ],
+                                seed: Math.floor(Math.random() * 1000000),
+                                imageConfig: {
+                                    outputMimeType: outputMimeType
+                                }
+                            }
+                        },
+                        {
+                            initialDelay: this.ASSET_GEN_COOLDOWN_MS,
+                        },
+                        async (error: any, attempt: number, currentParams) => {
+                            if (error instanceof ApiError) {
+                                if (error.message.includes("Resource exhausted") && attempt > 1) {
+                                    currentParams.model = "imagen-4.0-generate-001";
+                                    console.log('image model now using imagen-4.0-generate-001')
+                                }
+                            }
+                            return currentParams;
+                        }
+                    );
+
+                    if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
+                        throw new Error("Image generation failed to return any images.");
+                    }
+
+                    const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+                    if (!generatedImageData) {
+                        throw new Error("Generated image is missing inline data.");
+                    }
+
+                    const imageBuffer = Buffer.from(generatedImageData, "base64");
+
+                    const imagePath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: character.id });
+                    const imageUrl = await this.storageManager.uploadBuffer(
+                        imageBuffer,
+                        imagePath,
+                        outputMimeType,
+                    );
+
+                    const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
+                    if (characterIndex > -1) {
+                        updatedCharacters[characterIndex] = {
+                            ...updatedCharacters[characterIndex],
+                            referenceImageUrls: [ imageUrl ],
+                            state: {
+                                lastSeen: undefined,
+                                currentAppearance: {
+                                    hair: character.physicalTraits.hair,
+                                    clothing: character.physicalTraits.clothing,
+                                    accessories: character.physicalTraits.accessories,
+                                },
+                                position: "unknown",
+                                emotionalState: "neutral"
+                            }
+                        };
+                    }
+
+
+                    console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
+
+                } catch (error) {
+                    console.error(`    ✗ Failed to generate image for ${character.name}:`, error);
+                    const characterIndex = updatedCharacters.findIndex(c => c.id === character.id);
+                    if (characterIndex > -1) {
+                        updatedCharacters[characterIndex] = {
+                            ...updatedCharacters[characterIndex],
+                            referenceImageUrls: [],
+                             state: {
+                                lastSeen: undefined,
+                                currentAppearance: {
+                                    hair: character.physicalTraits.hair,
+                                    clothing: character.physicalTraits.clothing,
+                                    accessories: character.physicalTraits.accessories,
+                                },
+                                position: "unknown",
+                                emotionalState: "neutral"
+                            }
+                        };
+                    }
                 }
-
-                const imageBuffer = Buffer.from(generatedImageData, "base64");
-
-                const imagePath = this.storageManager.getGcsObjectPath({ type: "character_image", characterId: character.id });
-                const imageUrl = await this.storageManager.uploadBuffer(
-                    imageBuffer,
-                    imagePath,
-                    outputMimeType,
-                );
-
-                updatedCharacters.push({
-                    ...character,
-                    referenceImageUrls: [ imageUrl ],
-                    // Initialize state
-                    state: {
-                        lastSeen: undefined,
-                        currentAppearance: {
-                            hair: character.physicalTraits.hair,
-                            clothing: character.physicalTraits.clothing,
-                            accessories: character.physicalTraits.accessories,
-                        },
-                        position: "unknown",
-                        emotionalState: "neutral"
-                    }
-                });
-
-                console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
-
-            } catch (error) {
-                console.error(`    ✗ Failed to generate image for ${character.name}:`, error);
-                updatedCharacters.push({
-                    ...character,
-                    referenceImageUrls: [],
-                    state: {
-                        lastSeen: undefined,
-                        currentAppearance: {
-                            hair: character.physicalTraits.hair,
-                            clothing: character.physicalTraits.clothing,
-                            accessories: character.physicalTraits.accessories,
-                        },
-                        position: "unknown",
-                        emotionalState: "neutral"
-                    }
-                });
             }
         }
         return updatedCharacters;
@@ -210,90 +241,120 @@ export class ContinuityManagerAgent {
     async generateLocationAssets(
         locations: Location[],
     ): Promise<Location[]> {
-        console.log(`\n🎨 Generating reference images for ${locations.length} locations...`);
+        console.log(`\n🎨 Checking for existing reference images for ${locations.length} locations...`);
 
-        const updatedLocations: Location[] = [];
+        const locationsToGenerate: Location[] = [];
+        const updatedLocations: Location[] = [ ...locations ];
 
         for (const location of locations) {
-            console.log(`  → Generating: ${location.name}`);
+            const imagePath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: location.id });
+            const exists = await this.storageManager.fileExists(imagePath);
 
-            const imagePrompt = buildLocationImagePrompt(location);
-
-            try {
-                const outputMimeType = "image/png";
-
-                const result = await retryLlmCall(
-                    this.imageModel.generateContent.bind(this.imageModel),
-                    {
-                        model: imageModelName,
-                        contents: [ imagePrompt ],
-                        config: {
-                            candidateCount: 1,
-                            responseModalities: [ Modality.IMAGE ],
-                            seed: Math.floor(Math.random() * 1000000),
-                            imageConfig: {
-                                outputMimeType: outputMimeType
-                            }
-                        }
-                    },
-                    {
-                        initialDelay: this.ASSET_GEN_COOLDOWN_MS,
-                    },
-                    async (error: any, attempt: number, currentParams) => {
-                        if (error instanceof ApiError) {
-                            if (error.message.includes("Resource exhausted") && attempt > 1) {
-                                currentParams.model = "imagen-4.0-generate-001";
-                                console.log('image model now using imagen-4.0-generate-001');
-                            }
-                        }
-                        return currentParams;
-                    }
-                );
-
-                if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
-                    throw new Error("Image generation failed to return any images.");
+            if (exists) {
+                console.log(`  → Found existing image for: ${location.name}`);
+                const imageUrl = this.storageManager.getPublicUrl(imagePath);
+                const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
+                if (locationIndex > -1) {
+                    updatedLocations[locationIndex] = {
+                        ...updatedLocations[locationIndex],
+                        referenceImageUrls: [ imageUrl ],
+                    };
                 }
+            } else {
+                console.log(`  → No image found for: ${location.name}. Queued for generation.`);
+                locationsToGenerate.push(location);
+            }
+        }
 
-                const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
-                if (!generatedImageData) {
-                    throw new Error("Generated image is missing inline data.");
+        if (locationsToGenerate.length > 0) {
+            console.log(`\n🎨 Generating reference images for ${locationsToGenerate.length} locations...`);
+
+            for (const location of locationsToGenerate) {
+                console.log(`  → Generating: ${location.name}`);
+
+                const imagePrompt = buildLocationImagePrompt(location);
+
+                try {
+                    const outputMimeType = "image/png";
+
+                    const result = await retryLlmCall(
+                        this.imageModel.generateContent.bind(this.imageModel),
+                        {
+                            model: imageModelName,
+                            contents: [ imagePrompt ],
+                            config: {
+                                candidateCount: 1,
+                                responseModalities: [ Modality.IMAGE ],
+                                seed: Math.floor(Math.random() * 1000000),
+                                imageConfig: {
+                                    outputMimeType: outputMimeType
+                                }
+                            }
+                        },
+                        {
+                            initialDelay: this.ASSET_GEN_COOLDOWN_MS,
+                        },
+                        async (error: any, attempt: number, currentParams) => {
+                            if (error instanceof ApiError) {
+                                if (error.message.includes("Resource exhausted") && attempt > 1) {
+                                    currentParams.model = "imagen-4.0-generate-001";
+                                    console.log('image model now using imagen-4.0-generate-001');
+                                }
+                            }
+                            return currentParams;
+                        }
+                    );
+
+                    if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
+                        throw new Error("Image generation failed to return any images.");
+                    }
+
+                    const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+                    if (!generatedImageData) {
+                        throw new Error("Generated image is missing inline data.");
+                    }
+
+                    const imageBuffer = Buffer.from(generatedImageData, "base64");
+
+                    const imagePath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: location.id });
+                    const imageUrl = await this.storageManager.uploadBuffer(
+                        imageBuffer,
+                        imagePath,
+                        outputMimeType,
+                    );
+
+                    const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
+                    if (locationIndex > -1) {
+                        updatedLocations[locationIndex] = {
+                            ...updatedLocations[locationIndex],
+                            referenceImageUrls: [ imageUrl ],
+                            state: {
+                                lastUsed: undefined,
+                                lighting: location.lightingConditions,
+                                weather: "neutral",
+                                timeOfDay: location.timeOfDay
+                            }
+                        };
+                    }
+
+                    console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
+
+                } catch (error) {
+                    console.error(`    ✗ Failed to generate image for ${location.name}:`, error);
+                    const locationIndex = updatedLocations.findIndex(l => l.id === location.id);
+                     if (locationIndex > -1) {
+                        updatedLocations[locationIndex] = {
+                            ...updatedLocations[locationIndex],
+                            referenceImageUrls: [],
+                            state: {
+                                lastUsed: undefined,
+                                lighting: location.lightingConditions,
+                                weather: "neutral",
+                                timeOfDay: location.timeOfDay
+                            }
+                        };
+                    }
                 }
-
-                const imageBuffer = Buffer.from(generatedImageData, "base64");
-
-                const imagePath = this.storageManager.getGcsObjectPath({ type: "location_image", locationId: location.id });
-                const imageUrl = await this.storageManager.uploadBuffer(
-                    imageBuffer,
-                    imagePath,
-                    outputMimeType,
-                );
-
-                updatedLocations.push({
-                    ...location,
-                    referenceImageUrls: [ imageUrl ],
-                    // Initialize state
-                    state: {
-                        lastUsed: undefined,
-                        lighting: location.lightingConditions,
-                        weather: "neutral",
-                        timeOfDay: location.timeOfDay
-                    }
-                });
-
-                console.log(`    ✓ Saved: ${this.storageManager.getPublicUrl(imageUrl)}`);
-
-            } catch (error) {
-                console.error(`    ✗ Failed to generate image for ${location.name}:`, error);
-                updatedLocations.push({
-                    ...location,
-                    referenceImageUrls: [],
-                    state: {
-                        lastUsed: undefined,
-                        lighting: location.lightingConditions,
-                        weather: "neutral",
-                        timeOfDay: location.timeOfDay
-                    }
-                });
             }
         }
         return updatedLocations;

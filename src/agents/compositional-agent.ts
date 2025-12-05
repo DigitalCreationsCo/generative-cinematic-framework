@@ -111,7 +111,7 @@ export class CompositionalAgent {
     console.log(`  - Total Scenes: ${updatedStoryboard.metadata.totalScenes}`);
     console.log(`  - Characters: ${updatedStoryboard.characters.length}`);
     console.log(`  - Locations: ${updatedStoryboard.locations.length}`);
-    console.log(`  - Creative prompt added to metadata: ${((storyboard.metadata as any).creativePrompt as string).slice(0, 50)}...`)
+    console.log(`  - Creative prompt added to metadata: ${((updatedStoryboard.metadata as any).creativePrompt as string).slice(0, 50)}...`)
 
     return updatedStoryboard;
   }
