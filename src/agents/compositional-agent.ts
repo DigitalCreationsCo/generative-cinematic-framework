@@ -14,7 +14,7 @@ import {
 } from "../types";
 import { cleanJsonOutput } from "../utils";
 import { GCPStorageManager } from "../storage-manager";
-import { buildStoryboardEnrichmentInstructions } from "../prompts/storyboard-composition-instruction";
+import { buildStoryboardEnrichmentInstructions, InitialContextSchema, ScenesOnlySchema } from "../prompts/storyboard-composition-instruction";
 import { retryLlmCall, RetryConfig } from "../lib/llm-retry";
 import { LlmWrapper } from "../llm";
 import { buildPromptExpansionInstruction } from "../prompts/prompt-expansion-instruction";
@@ -37,10 +37,6 @@ export class CompositionalAgent {
 
     const BATCH_SIZE = 10;
     let enrichedScenes: Scene[] = [];
-
-    const ScenesOnlySchema = z.object({
-      scenes: z.array(SceneSchema)
-    });
 
     for (let i = 0; i < storyboard.scenes.length; i += BATCH_SIZE) {
       const chunkScenes = storyboard.scenes.slice(i, i + BATCH_SIZE);
@@ -117,17 +113,11 @@ export class CompositionalAgent {
   private async _generateInitialContext(creativePrompt: string, scenes: Scene[], retryConfig?: RetryConfig): Promise<Storyboard> {
     console.log("   ... Generating initial context (metadata, characters, locations)...");
 
-    const InitialContextSchema = z.object({
-      metadata: StoryboardSchema.shape.metadata,
-      characters: StoryboardSchema.shape.characters,
-      locations: StoryboardSchema.shape.locations,
-    });
-
     const jsonSchema = zodToJSONSchema(InitialContextSchema);
     const systemPrompt = buildStoryboardEnrichmentInstructions({ isFirstBatch: true, batchNum: 0, totalBatches: 0 }, jsonSchema);
 
     // Provide a snippet of scenes for context, without overwhelming the model
-    const sceneSnippet = scenes.slice(0, 5).map(s => ({
+    const sceneSnippet = scenes.slice(0, 4).map(s => ({
       description: s.description,
       lyrics: s.lyrics,
       mood: s.mood
@@ -138,7 +128,7 @@ export class CompositionalAgent {
       CREATIVE PROMPT:
       ${creativePrompt}
 
-      SCENE SNIPPET FOR CONTEXT:
+      SNIPPET OF FIRST FIVE SCENES:
       ${JSON.stringify(sceneSnippet, null, 2)}
     `;
 

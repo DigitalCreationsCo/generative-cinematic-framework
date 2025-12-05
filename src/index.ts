@@ -269,7 +269,8 @@ class CinematicVideoWorkflow {
         undefined, // prev scene logic moved to continuity manager
         undefined, // last frame url handling can be improved
         characterReferenceUrls,
-        locationReferenceUrls
+        locationReferenceUrls,
+        !state.hasAudio
       );
 
       if (result.evaluation) {

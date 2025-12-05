@@ -37,18 +37,12 @@ export class SceneGeneratorAgent {
         previousScene?: Scene,
         previousFrameUrl?: string,
         characterReferenceUrls?: string[],
-        locationReferenceUrls?: string[]
+        locationReferenceUrls?: string[],
+        generateAudio: boolean = false,
     ): Promise<SceneGenerationResult> {
 
         console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
         console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
-
-        // Proactively sanitize the prompt to prevent common safety filter issues.
-        const sanitizedPrompt = await this.sanitizePrompt(enhancedPrompt);
-        if (sanitizedPrompt !== enhancedPrompt) {
-            console.log(`   🛡️ Prompt proactively sanitized.`);
-            enhancedPrompt = sanitizedPrompt;
-        }
 
         if (!this.qualityAgent.qualityConfig.enabled || !this.qualityAgent) {
             const generated = await this.generateScene(
@@ -58,7 +52,8 @@ export class SceneGeneratorAgent {
                 previousFrameUrl,
                 characterReferenceUrls,
                 locationReferenceUrls,
-                previousScene
+                previousScene,
+                generateAudio
             );
             return {
                 scene: generated,
@@ -76,6 +71,7 @@ export class SceneGeneratorAgent {
             previousFrameUrl,
             characterReferenceUrls,
             locationReferenceUrls,
+            generateAudio
         );
     }
 
@@ -90,7 +86,8 @@ export class SceneGeneratorAgent {
         previousScene?: Scene,
         previousFrameUrl?: string,
         characterReferenceUrls?: string[],
-        locationReferenceUrls?: string[]
+        locationReferenceUrls?: string[],
+        generateAudio = false,
     ): Promise<SceneGenerationResult> {
 
         let bestScene: GeneratedScene | null = null;
@@ -110,6 +107,8 @@ export class SceneGeneratorAgent {
                     previousFrameUrl,
                     characterReferenceUrls,
                     locationReferenceUrls,
+                    previousScene,
+                    generateAudio,
                 );
 
                 const evaluation = await this.qualityAgent.evaluateScene(
@@ -191,6 +190,7 @@ export class SceneGeneratorAgent {
         characterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
         previousScene?: Scene,
+        generateAudio = false,
     ) {
 
         const attemptLabel = attempt ? ` (Quality Attempt ${attempt})` : '';
@@ -204,6 +204,7 @@ export class SceneGeneratorAgent {
                 characterReferenceUrls,
                 locationReferenceUrls,
                 previousScene,
+                generateAudio,
             ),
             enhancedPrompt,
             {
@@ -228,10 +229,18 @@ export class SceneGeneratorAgent {
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
         previousScene?: Scene,
+        generateAudio = false,
     ): Promise<GeneratedScene> {
         try {
             console.log(`\n🎬 Generating Scene ${scene.id}: ${formatTime(scene.duration)}`);
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
+
+            // Proactively sanitize the prompt to prevent common safety filter issues.;
+            const sanitizedPrompt = await this.sanitizePrompt(enhancedPrompt);
+            if (sanitizedPrompt !== enhancedPrompt) {
+                console.log(`   🛡️ Prompt proactively sanitized.`);
+                enhancedPrompt = sanitizedPrompt;
+            }
 
             const videoUrl = await this.executeVideoGeneration(
                 enhancedPrompt,
@@ -242,6 +251,7 @@ export class SceneGeneratorAgent {
                 characerterReferenceUrls,
                 locationReferenceUrls,
                 previousScene,
+                generateAudio,
             );
 
             let lastFrameUrl: string | undefined;
@@ -327,6 +337,7 @@ export class SceneGeneratorAgent {
         characerterReferenceUrls?: string[],
         locationReferenceUrls?: string[],
         previousScene?: Scene,
+        generateAudio = false
     ): Promise<string> {
         console.log(`   Generating video with prompt: ${prompt.substring(0, 50)}...`);
 
@@ -372,11 +383,11 @@ export class SceneGeneratorAgent {
             ...sourceParam,
             config: {
                 referenceImages: allReferenceImages,
+                generateAudio,
                 resolution: '720p',
                 durationSeconds,
                 numberOfVideos: 1,
                 personGeneration: PersonGeneration.ALLOW_ALL,
-                generateAudio: false,
                 negativePrompt: "celebrity, famous person, photorealistic representation of real person, distorted face, watermark, text, bad quality",
             }
         });

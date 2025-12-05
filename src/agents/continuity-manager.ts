@@ -76,10 +76,8 @@ export class ContinuityManagerAgent {
         };
 
         const refinePromptSchema = z.object({
-            "refinedRules": [
-                "string"
-            ],
-            "enhancedPrompt": "string"
+            refinedRules: z.array(z.string()),
+            enhancedPrompt: z.string()
         })
 
         const { prompt, parser } = buildRefineAndEnhancePrompt(
