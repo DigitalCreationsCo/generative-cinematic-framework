@@ -109,13 +109,21 @@ class CinematicVideoWorkflow {
     });
 
     workflow.addNode("expand_creative_prompt", async (state: GraphState) => {
-      if (!state.creativePrompt) throw new Error("No creative prompt was provided");
-      console.log("\n🎨 PHASE 0: Expanding Creative Prompt to Cinema Quality...");
-      console.log(`   Original prompt: ${state.creativePrompt.substring(0, 100)}...`);
+      let expandedPrompt: string;
+      if ((state.storyboard.metadata as any).creativePrompt) {
+        console.log("\n🎨 PHASE 0: Storyboard contains expanded creative prompt...");
 
-      const expandedPrompt = await this.compositionalAgent.expandCreativePrompt(state.creativePrompt);
+        expandedPrompt = (state.storyboard.metadata as any).creativePrompt;
+        
+      } else {
+        if (!state.creativePrompt) throw new Error("No creative prompt was provided");
+        console.log("\n🎨 PHASE 0: Expanding Creative Prompt to Cinema Quality...");
+        console.log(`   Original prompt: ${state.creativePrompt.substring(0, 100)}...`);
 
-      console.log(`   ✓ Expanded to ${expandedPrompt.length} characters of cinematic detail`);
+        expandedPrompt = await this.compositionalAgent.expandCreativePrompt(state.creativePrompt);
+
+        console.log(`   ✓ Expanded to ${expandedPrompt.length} characters of cinematic detail`);
+      }
 
       return {
         ...state,
@@ -142,7 +150,10 @@ class CinematicVideoWorkflow {
       return {
         ...state,
         storyboard: {
-          metadata: { duration: totalDuration },
+          metadata: {
+            ...state.storyboard.metadata,
+            duration: totalDuration
+          },
           scenes: segments,
         } as Storyboard,
       };
@@ -152,9 +163,17 @@ class CinematicVideoWorkflow {
       if (!state.creativePrompt) throw new Error("No creative prompt available");
       console.log("\n📋 PHASE 1: Generating Storyboard from Creative Prompt (No Audio)...");
 
-      const storyboard = await this.compositionalAgent.generateStoryboardFromPrompt(
+      let storyboard = await this.compositionalAgent.generateStoryboardFromPrompt(
         state.creativePrompt
       );
+
+      storyboard = {
+        ...storyboard,
+        metadata: {
+          ...state.storyboard.metadata,
+          ...storyboard.metadata,
+        }
+      }
 
       return {
         ...state,
@@ -167,13 +186,21 @@ class CinematicVideoWorkflow {
     workflow.addNode("enhance_storyboard_with_prompt", async (state: GraphState) => {
       if (!state.storyboard || !state.storyboard.scenes) throw new Error("No timed scenes available");
       if (!state.creativePrompt) throw new Error("No creative prompt available");
+      
       console.log("\n📋 PHASE 1b: Enhancing Storyboard with Prompt...");
-      const storyboard = await this.compositionalAgent.generateStoryboard(
+      let storyboard = await this.compositionalAgent.generateStoryboard(
         state.storyboard,
         state.creativePrompt
       );
 
-      // Enhanced storyboard updates the state
+      storyboard = {
+        ...storyboard,
+        metadata: {
+          ...state.storyboard.metadata,
+          ...storyboard.metadata,
+        }
+      }
+
       return {
         ...state,
         storyboard,
@@ -443,9 +470,14 @@ class CinematicVideoWorkflow {
       const characters = await Promise.all(characterPromises);
       const locations = await Promise.all(locationPromises);
 
-      // Update storyboard with generated asset references
       const updatedStoryboard = {
         ...storyboard,
+        metadata: {
+          ...storyboard.metadata,
+          videoModel: (storyboard.metadata as any).videoModel ?? videoModelName,
+          imageModel: (storyboard.metadata as any).videoModel ?? imageModelName,
+          textModel: (storyboard.metadata as any).videoModel ?? textModelName,
+        },
         characters,
         locations,
       };
@@ -469,10 +501,20 @@ class CinematicVideoWorkflow {
         throw new Error("Cannot start new workflow without creativePrompt.");
       }
 
+      const newStoryboard = {
+        metadata: {
+          videoModel: videoModelName,
+          imageModel: imageModelName,
+          textModel: textModelName,
+        } as unknown as Storyboard['metadata'],
+      } as Storyboard;
+
       initialState = {
         initialPrompt: localAudioPath || '',
         creativePrompt,
         hasAudio,
+        storyboard: newStoryboard,
+        storyboardState: newStoryboard,
         currentSceneIndex: 0,
         errors: [],
         generationRules: [],

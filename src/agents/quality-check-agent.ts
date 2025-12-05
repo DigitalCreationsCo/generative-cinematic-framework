@@ -205,7 +205,7 @@ export class QualityCheckAgent {
   ): void {
     const scorePercentage = (overallScore * 100).toFixed(1);
     
-    console.log(`   Overall Rating: ${evaluation.overall} (${scorePercentage}%)`);
+    console.log(`   Overall Rating Scene ${sceneId}: ${evaluation.overall} (${scorePercentage}%)`);
     
     Object.entries(evaluation.scores).forEach(([category, score]) => {
       const icon = score.rating === "PASS" ? "✓" : 

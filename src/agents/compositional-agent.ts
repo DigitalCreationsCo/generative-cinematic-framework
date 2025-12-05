@@ -85,29 +85,32 @@ export class CompositionalAgent {
       enrichedScenes.push(...batchResult.scenes);
     }
 
-    const finalStoryboard: Storyboard = {
+    const updatedStoryboard: Storyboard = {
       ...initialContext,
       scenes: enrichedScenes,
       metadata: {
         ...initialContext.metadata,
         totalScenes: storyboard.scenes.length,
         duration: storyboard.scenes.length > 0 ? storyboard.scenes[ storyboard.scenes.length - 1 ].endTime : 0,
-      },
+        // append prompt
+        creativePrompt: creativePrompt,
+        
+      } as Storyboard['metadata']
     };
 
-    this.validateTimingPreservation(storyboard.scenes, finalStoryboard.scenes);
+    this.validateTimingPreservation(storyboard.scenes, updatedStoryboard.scenes);
 
     const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });
-    await this.storageManager.uploadJSON(finalStoryboard, storyboardPath);
+    await this.storageManager.uploadJSON(updatedStoryboard, storyboardPath);
 
     console.log(`✓ Storyboard enriched successfully:`);
-    console.log(`  - Title: ${finalStoryboard.metadata.title || "Untitled"}`);
-    console.log(`  - Duration: ${finalStoryboard.metadata.duration}`);
-    console.log(`  - Total Scenes: ${finalStoryboard.metadata.totalScenes}`);
-    console.log(`  - Characters: ${finalStoryboard.characters.length}`);
-    console.log(`  - Locations: ${finalStoryboard.locations.length}`);
+    console.log(`  - Title: ${updatedStoryboard.metadata.title || "Untitled"}`);
+    console.log(`  - Duration: ${updatedStoryboard.metadata.duration}`);
+    console.log(`  - Total Scenes: ${updatedStoryboard.metadata.totalScenes}`);
+    console.log(`  - Characters: ${updatedStoryboard.characters.length}`);
+    console.log(`  - Locations: ${updatedStoryboard.locations.length}`);
 
-    return finalStoryboard;
+    return updatedStoryboard;
   }
 
   private async _generateInitialContext(creativePrompt: string, scenes: Scene[], retryConfig?: RetryConfig): Promise<Storyboard> {
@@ -294,6 +297,9 @@ Generate a complete cinematic storyboard for this concept.`;
     };
 
     const storyboard = await retryLlmCall(llmCall, undefined, { maxRetries: 3, initialDelay: 1000, ...retryConfig });
+
+    // append prompt in metadata
+    (storyboard.metadata as any).creativePrompt = creativePrompt;
 
     // Save storyboard
     const storyboardPath = this.storageManager.getGcsObjectPath({ type: "storyboard" });

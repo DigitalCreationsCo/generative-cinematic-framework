@@ -114,14 +114,14 @@ export class SceneGeneratorAgent {
 
                 const evaluation = await this.qualityAgent.evaluateScene(
                     scene,
-                    generated.generatedVideoUrl!,
+                    generated.generatedVideoUrl,
                     enhancedPrompt,
                     characters,
                     attempt,
                     previousScene,
                 );
 
-                const score = this.qualityAgent![ 'calculateOverallScore' ](evaluation.scores);
+                const score = this.qualityAgent[ 'calculateOverallScore' ](evaluation.scores);
 
                 if (score > bestScore) {
                     bestScore = score;
