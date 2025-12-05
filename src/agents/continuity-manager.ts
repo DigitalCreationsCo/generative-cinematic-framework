@@ -123,7 +123,7 @@ export class ContinuityManagerAgent {
                 const outputMimeType = "image/png";
 
                 const result = await retryLlmCall(
-                    this.imageModel.generateContent.bind(this.imageModel),
+                    this.imageModel.generateImages.bind(this.imageModel),
                     {
                         model: imageModelName,
                         contents: [ imagePrompt ],
@@ -150,11 +150,11 @@ export class ContinuityManagerAgent {
                     }
                 );
 
-                if (!result.candidates || result.candidates?.[ 0 ]?.content?.parts?.length === 0) {
+                if (!result.generatedImages || result.generatedImages[ 0 ].image?.imageBytes) {
                     throw new Error("Image generation failed to return any images.");
                 }
 
-                const generatedImageData = result.candidates[ 0 ].content?.parts?.[ 0 ]?.inlineData?.data;
+                const generatedImageData = result.generatedImages[ 0 ].image?.imageBytes;
                 if (!generatedImageData) {
                     throw new Error("Generated image is missing inline data.");
                 }

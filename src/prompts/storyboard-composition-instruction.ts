@@ -98,10 +98,7 @@ The music is your co-director.
 - Climactic moments: Align peak visual drama with musical climax
 
 SCHEMA COMPLIANCE (CRITICAL):
-You MUST populate ALL non-optional fields in the schema. Missing fields will break the pipeline.
-
-Required structures:
-${jsonSchema}
+You MUST populate ALL non-optional fields in the output_schema. Missing any fields is not acceptable and will break the pipeline.
 
 INSTRUMENTAL SECTION GUIDANCE:
 For scenes marked "[Instrumental]" or with placeholder descriptions:
@@ -122,5 +119,5 @@ Identify ALL distinct settings:
 - Sub-locations: "Tomb Entrance", "Hall of the King", "Inner Labyrinth"
 - Each location needs vivid sensory description (sights, implied sounds, atmosphere)
 
-Return JSON exactly matching this schema: ${JSON.stringify(jsonSchema, null, 2)}`;
+Return JSON exactly matching this schema. output_schema: ${JSON.stringify(jsonSchema, null, 2)}`;
 

@@ -25,6 +25,10 @@ export class LlmWrapper {
     async generateContent(params: any) {
         return this.provider.generateContent(params);
     }
+    
+    async generateImages(params: any) {
+        return this.provider.generateImages(params);
+    }
 
     async generateVideos(params: any) {
         return this.provider.generateVideos(params);
