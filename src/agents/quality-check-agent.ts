@@ -1,5 +1,5 @@
 
-import { Scene, Character, QualityEvaluation, PromptCorrection, QualityConfig } from "../types";
+import { Scene, Character, QualityEvaluationResult, PromptCorrection, QualityConfig } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { buildEvaluationPrompt } from "../prompts/evaluation-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
@@ -47,7 +47,7 @@ export class QualityCheckAgent {
     characters: Character[],
     attempt: number,
     previousScene?: Scene,
-  ): Promise<QualityEvaluation> {
+  ): Promise<QualityEvaluationResult> {
     
     console.log(`\n🔍 Quality Check: Scene ${scene.id}`);
 
@@ -83,7 +83,7 @@ export class QualityCheckAgent {
 
       if (!response.text) throw new Error("No quality evaluation generated from LLM from Quality Check Agent");
 
-      const evaluation = JSON.parse(response.text) as QualityEvaluation;
+      const evaluation = JSON.parse(response.text) as QualityEvaluationResult;
       
       const overallScore = this.calculateOverallScore(evaluation.scores);
       evaluation.overall = this.determineOverallRating(overallScore);
@@ -116,7 +116,7 @@ export class QualityCheckAgent {
    */
   async applyQualityCorrections(
     originalPrompt: string,
-    evaluation: QualityEvaluation,
+    evaluation: QualityEvaluationResult,
     scene: Scene,
     characters: Character[],
     attempt: number
@@ -154,7 +154,7 @@ export class QualityCheckAgent {
   /**
    * Calculate weighted overall score
    */
-  private calculateOverallScore(scores: QualityEvaluation["scores"]): number {
+  private calculateOverallScore(scores: QualityEvaluationResult[ "scores" ]): number {
     const ratingToScore = {
       "PASS": 1.0,
       "MINOR_ISSUES": 0.7,
@@ -179,7 +179,7 @@ export class QualityCheckAgent {
   /**
    * Determine overall rating from score
    */
-  private determineOverallRating(score: number): QualityEvaluation["overall"] {
+  private determineOverallRating(score: number): QualityEvaluationResult[ "overall" ] {
     if (score >= this.qualityConfig.acceptThreshold) return "ACCEPT";
     if (score >= this.qualityConfig.minorIssueThreshold) return "ACCEPT_WITH_NOTES";
     if (score >= this.qualityConfig.majorIssueThreshold) return "REGENERATE_MINOR";
@@ -200,7 +200,7 @@ export class QualityCheckAgent {
    */
   private logEvaluationResults(
     sceneId: number,
-    evaluation: QualityEvaluation,
+    evaluation: QualityEvaluationResult,
     overallScore: number
   ): void {
     const scorePercentage = (overallScore * 100).toFixed(1);
@@ -227,7 +227,7 @@ export class QualityCheckAgent {
   private async saveEvaluation(
     sceneId: number,
     attempt: number,
-    evaluation: QualityEvaluation
+    evaluation: QualityEvaluationResult
   ): Promise<void> {
     const evaluationPath = await this.storageManager.getGcsObjectPath(
       { type: "quality_evaluation", sceneId, attempt }
@@ -239,7 +239,7 @@ export class QualityCheckAgent {
   /**
    * Get default passing scores (fallback)
    */
-  private getDefaultScores(): QualityEvaluation["scores"] {
+  private getDefaultScores(): QualityEvaluationResult[ "scores" ] {
     return {
       narrativeFidelity: { rating: "PASS", weight: 0.30, details: "Not evaluated" },
       characterConsistency: { rating: "PASS", weight: 0.25, details: "Not evaluated" },

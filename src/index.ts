@@ -20,7 +20,7 @@ import {
   Scene,
   Storyboard,
   GraphState,
-  QualityEvaluation,
+  QualityEvaluationResult,
   GeneratedScene,
   InitialGraphState,
   SceneGenerationMetric,

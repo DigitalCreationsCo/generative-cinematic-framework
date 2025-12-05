@@ -1,6 +1,6 @@
 import { PersonGeneration, Video, Image, VideoGenerationReferenceType, Operation, GenerateVideosResponse } from "@google/genai";
 import { GCPStorageManager } from "../storage-manager";
-import { Character, GeneratedScene, QualityEvaluation, Scene, SceneGenerationResult } from "../types";
+import { Character, GeneratedScene, QualityEvaluationResult, Scene, SceneGenerationResult } from "../types";
 import { RAIError } from "../lib/errors";
 import ffmpeg from "fluent-ffmpeg";
 import { buildVideoGenerationParams, buildllmParams } from "../llm/google/llm-params";
@@ -91,7 +91,7 @@ export class SceneGeneratorAgent {
     ): Promise<SceneGenerationResult> {
 
         let bestScene: GeneratedScene | null = null;
-        let bestEvaluation: QualityEvaluation | null = null;
+        let bestEvaluation: QualityEvaluationResult | null = null;
         let bestScore = 0;
         let totalAttempts = 0;
 

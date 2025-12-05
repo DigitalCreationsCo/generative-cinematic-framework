@@ -8,15 +8,15 @@ export const zodToJSONSchema = (schema: z.ZodType) => z.toJSONSchema(schema);
 
 export const QualityScoreSchema = z.object({
   rating: z.enum([ "PASS", "MINOR_ISSUES", "MAJOR_ISSUES", "FAIL" ]),
-  weight: z.number(),
-  details: z.string(),
+  weight: z.number().max(1),
+  details: z.string().describe("Detailed explanation"),
 });
 export type QualityScore = z.infer<typeof QualityScoreSchema>;
 
 export const QualityIssueSchema = z.object({
   category: z.string(),
   severity: z.enum([ "critical", "major", "minor" ]),
-  description: z.string(),
+  description: z.string().describe("Detailed explanation"),
   videoTimestamp: z.string().optional(),
   suggestedFix: z.string(),
 });
@@ -30,8 +30,8 @@ export const PromptCorrectionSchema = z.object({
 });
 export type PromptCorrection = z.infer<typeof PromptCorrectionSchema>;
 
+
 export const QualityEvaluationSchema = z.object({
-  overall: z.enum([ "ACCEPT", "ACCEPT_WITH_NOTES", "REGENERATE_MINOR", "REGENERATE_MAJOR", "FAIL" ]),
   scores: z.object({
     narrativeFidelity: QualityScoreSchema,
     characterConsistency: QualityScoreSchema,
@@ -40,11 +40,18 @@ export const QualityEvaluationSchema = z.object({
     continuity: QualityScoreSchema,
   }),
   issues: z.array(QualityIssueSchema),
-  feedback: z.string(),
+  feedback: z.string().describe("Overall summary of quality assessment"),
   promptCorrections: z.array(PromptCorrectionSchema).optional(),
-  ruleSuggestion: z.string().optional(),
+  ruleSuggestion: z.string().optional().describe("A new global rule to prevent future systemic issues."),
 });
-export type QualityEvaluation = z.infer<typeof QualityEvaluationSchema>;
+
+const QualityEvaluationResultSchema = z.intersection(
+  QualityEvaluationSchema,
+  z.object({
+    overall: z.enum([ "ACCEPT", "ACCEPT_WITH_NOTES", "REGENERATE_MINOR", "REGENERATE_MAJOR", "FAIL" ]),
+  })
+);
+export type QualityEvaluationResult = z.infer<typeof QualityEvaluationResultSchema>;
 
 // ============================================================================
 // CHARACTER SCHEMAS
@@ -159,7 +166,7 @@ export const SceneSchema = z.intersection(
     enhancedPrompt: z.string().optional().describe("enhanced prompt for video generation with continuity details"),
     generatedVideoUrl: z.string().optional().describe("GCS URL of the generated video"),
     lastFrameUrl: z.string().optional().describe("GCS URL of the last frame extracted from video"),
-    evaluation: QualityEvaluationSchema.optional().describe("Quality evaluation result for the scene"),
+    evaluation: QualityEvaluationResultSchema.optional().describe("Quality evaluation result for the scene"),
   }));
 export type Scene = z.infer<typeof SceneSchema>;
 
@@ -289,7 +296,7 @@ export interface SceneGenerationResult {
   scene: GeneratedScene;
   attempts: number;
   finalScore: number;
-  evaluation: QualityEvaluation | null;
+  evaluation: QualityEvaluationResult | null;
   warning?: string;
 }
 

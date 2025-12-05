@@ -1,4 +1,7 @@
-import { Character, Scene } from "../types";
+export const promptVersion = "1.1.0";
+
+import { z } from "zod";
+import { Character, QualityEvaluationSchema, Scene } from "../types";
 import { formatCharacterSpecs } from "../utils";
 
 /**
@@ -9,7 +12,7 @@ export const buildEvaluationPrompt = (
   videoUrl: string,
   enhancedPrompt: string,
   characters: Character[],
-  previousScene?: Scene
+  previousScene?: Scene,
 ): string => `You are a professional video quality control specialist for a cinema production. Evaluate this generated scene against the production requirements.
 
 ========================================
@@ -175,53 +178,6 @@ OUTPUT FORMAT
 ========================================
 
 Return JSON in this exact structure:
-{
-  "scores": {
-    "narrativeFidelity": {
-      "rating": "PASS|MINOR_ISSUES|MAJOR_ISSUES|FAIL",
-      "weight": 0.30,
-      "details": "Detailed explanation"
-    },
-    "characterConsistency": {
-      "rating": "PASS|MINOR_ISSUES|MAJOR_ISSUES|FAIL",
-      "weight": 0.25,
-      "details": "Detailed explanation"
-    },
-    "technicalQuality": {
-      "rating": "PASS|MINOR_ISSUES|MAJOR_ISSUES|FAIL",
-      "weight": 0.20,
-      "details": "Detailed explanation"
-    },
-    "emotionalAuthenticity": {
-      "rating": "PASS|MINOR_ISSUES|MAJOR_ISSUES|FAIL",
-      "weight": 0.15,
-      "details": "Detailed explanation"
-    },
-    "continuity": {
-      "rating": "PASS|MINOR_ISSUES|MAJOR_ISSUES|FAIL",
-      "weight": 0.10,
-      "details": "Detailed explanation"
-    }
-  },
-  "issues": [
-    {
-      "category": "string",
-      "severity": "critical|major|minor",
-      "description": "string",
-      "videoTimestamp": "string",
-      "suggestedFix": "string"
-    }
-  ],
-  "feedback": "Overall summary of quality assessment",
-  "promptCorrections": [
-    {
-      "issueType": "string",
-      "originalPromptSection": "string",
-      "correctedPromptSection": "string",
-      "reasoning": "string"
-    }
-  ],
-  "ruleSuggestion": "Optional: A new global rule to prevent future systemic issues."
-}
+${JSON.stringify(z.toJSONSchema(QualityEvaluationSchema), null, 2)}
 
 Be thorough but fair. Minor imperfections are acceptable. Focus on issues that significantly impact the viewer experience.`;
