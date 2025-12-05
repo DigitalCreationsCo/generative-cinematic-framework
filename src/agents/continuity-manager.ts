@@ -30,7 +30,7 @@ export class ContinuityManagerAgent {
     private imageModel: LlmWrapper;
     private storageManager: GCPStorageManager;
     private frameComposer: FrameCompositionAgent;
-    private ASSET_GEN_COOLDOWN_MS = 30000;
+    private ASSET_GEN_COOLDOWN_MS = 60000;
 
     constructor(
         llm: LlmWrapper,

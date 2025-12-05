@@ -237,11 +237,11 @@ export class SceneGeneratorAgent {
             console.log(`   Duration: ${scene.duration}s | Shot: ${scene.shotType}`);
 
             // Proactively sanitize the prompt to prevent common safety filter issues.;
-            const sanitizedPrompt = await this.sanitizePrompt(enhancedPrompt);
-            if (sanitizedPrompt !== enhancedPrompt) {
-                console.log(`   🛡️ Prompt proactively sanitized.`);
-                enhancedPrompt = sanitizedPrompt;
-            }
+            // const sanitizedPrompt = await this.sanitizePrompt(enhancedPrompt);
+            // if (sanitizedPrompt !== enhancedPrompt) {
+            //     console.log(`   🛡️ Prompt proactively sanitized.`);
+            //     enhancedPrompt = sanitizedPrompt;
+            // }
 
             const videoUrl = await this.executeVideoGeneration(
                 enhancedPrompt,
