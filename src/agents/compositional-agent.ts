@@ -187,7 +187,7 @@ export class CompositionalAgent {
 
     const systemPrompt = buildPromptExpansionInstruction();
 
-    const userMessage = `USER'S CREATIVE PROMPT:
+    const userMessage = `CREATIVE_PROMPT:
 ${userPrompt}
 
 Please expand this into a comprehensive cinematic blueprint following the framework provided.`;
