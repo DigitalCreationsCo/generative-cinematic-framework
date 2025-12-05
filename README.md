@@ -50,6 +50,24 @@ Expand Creative Prompt → Generate Storyboard
               END
 ```
 
+graph TD
+    A[START] --> B{Resume?};
+    B -- No --> C[expand_creative_prompt];
+    B -- Yes --> D[process_scene];
+    C --> E{Has Audio?};
+    E -- Yes --> F[create_timed_scenes_from_audio];
+    F --> G[enhance_storyboard_with_prompt];
+    E -- No --> H[generate_storyboard_from_prompt];
+    G --> I[generate_character_refs];
+    H --> I[generate_character_refs];
+    I --> J[generate_location_refs];
+    J --> D;
+    D --> K{All Scenes Processed?};
+    K -- No --> D;
+    K -- Yes --> L[render_video];
+    L --> M[finalize];
+    M --> N[END];
+
 ### Key Agents
 
 1. **AudioProcessingAgent**: Analyzes audio files using Gemini's multimodal capabilities to extract musical structure, lyrics, tempo, mood, and generates timed scene templates
