@@ -431,7 +431,7 @@ export class SceneGeneratorAgent {
         console.log(`   ... Uploading generated video to ${objectPath}`);
         const gcsUri = await this.storageManager.uploadBuffer(videoBuffer, objectPath, outputMimeType);
 
-        console.log(`   ✓ Video generated and uploaded: ${gcsUri}`);
+        console.log(`   ✓ Video generated and uploaded: ${this.storageManager.getPublicUrl(gcsUri)}`);
         return gcsUri;
     }
 
@@ -492,7 +492,7 @@ export class SceneGeneratorAgent {
 
                                 const fileBuffer = fs.readFileSync(tempFramePath);
                                 const gcsUrl = await this.storageManager.uploadBuffer(fileBuffer, framePath, "image/png");
-                                console.log(`   ✓ Last frame extracted: ${gcsUrl}`);
+                                console.log(`   ✓ Last frame extracted: ${this.storageManager.getPublicUrl(gcsUrl)}`);
                                 resolve(gcsUrl);
                             } catch (err) {
                                 reject(err);

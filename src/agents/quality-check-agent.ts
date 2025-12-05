@@ -1,5 +1,5 @@
 
-import { Scene, Character, QualityEvaluationResult, PromptCorrection, QualityConfig, QualityEvaluationSchema } from "../types";
+import { Scene, Character, QualityEvaluationResult, PromptCorrection, QualityConfig, QualityEvaluationSchema, zodToJSONSchema } from "../types";
 import { GCPStorageManager } from "../storage-manager";
 import { buildEvaluationPrompt } from "../prompts/evaluation-instruction";
 import { buildllmParams } from "../llm/google/llm-params";
@@ -104,6 +104,7 @@ export class QualityCheckAgent {
       scene,
       generatedVideoUrl,
       enhancedPrompt,
+      QualityEvaluationSchema,
       characters,
       previousScene
     );
@@ -124,6 +125,7 @@ export class QualityCheckAgent {
         }
       ],
       config: {
+        responseJsonSchema: zodToJSONSchema(QualityEvaluationSchema),
         temperature: 0.3,
       }
     }));

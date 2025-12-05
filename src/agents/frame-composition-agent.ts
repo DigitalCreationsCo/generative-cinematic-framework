@@ -67,7 +67,7 @@ export class FrameCompositionAgent {
         console.log(`   ... Uploading composite frame to ${outputPath}`);
         const gcsUri = await this.storageManager.uploadBuffer(imageBuffer, outputPath, outputMimeType);
 
-        console.log(`   ✓ Composite frame generated and uploaded: ${gcsUri}`);
+        console.log(`   ✓ Composite frame generated and uploaded: ${this.storageManager.getPublicUrl(gcsUri)}`);
         return gcsUri;
     }
 }

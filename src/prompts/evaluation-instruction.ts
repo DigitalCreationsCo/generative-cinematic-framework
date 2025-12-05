@@ -1,7 +1,7 @@
 export const promptVersion = "1.1.0";
 
 import { z } from "zod";
-import { Character, QualityEvaluationSchema, Scene } from "../types";
+import { Character, QualityEvaluationSchema, Scene, zodToJSONSchema } from "../types";
 import { formatCharacterSpecs } from "../utils";
 
 /**
@@ -11,6 +11,7 @@ export const buildEvaluationPrompt = (
   scene: Scene,
   videoUrl: string,
   enhancedPrompt: string,
+  schema: object,
   characters: Character[],
   previousScene?: Scene,
 ): string => `You are a professional video quality control specialist for a cinema production. Evaluate this generated scene against the production requirements.
@@ -178,6 +179,6 @@ OUTPUT FORMAT
 ========================================
 
 Return JSON in this exact structure:
-${JSON.stringify(z.toJSONSchema(QualityEvaluationSchema), null, 2)}
+${schema}
 
 Be thorough but fair. Minor imperfections are acceptable. Focus on issues that significantly impact the viewer experience.`;
