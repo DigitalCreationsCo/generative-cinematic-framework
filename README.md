@@ -26,30 +26,6 @@ Cinematic Framework leverages Google's Vertex AI (Gemini models) and LangGraph t
 
 The framework uses a **LangGraph state machine** to orchestrate the following workflow:
 
-```
-START
-  ↓
-Audio? → [Yes] → Process Audio → Enhance Storyboard
-  ↓       ↓                           ↓
- [No]     └───────────────────────────┘
-  ↓                                   ↓
-Expand Creative Prompt → Generate Storyboard
-  ↓                                   ↓
-  └───────────────────────────────────┘
-                ↓
-        Generate Character References
-                ↓
-        Generate Location References
-                ↓
-        Process Scene (loop for each scene)
-                ↓
-          Render Video (stitch scenes)
-                ↓
-            Finalize
-                ↓
-              END
-```
-
 ```mermaid
 graph TD
     A[START] --> B{Resume?};
