@@ -253,7 +253,7 @@ class CinematicVideoWorkflow {
         const generatedScene = {
           ...scene,
           generatedVideoUrl: this.storageManager.getGcsUrl(sceneVideoPath),
-          lastFrameUrl: scene.lastFrameUrl ?? currentSceneLastFrameUrl
+          lastFrameUrl: scene.lastFrameUrl || currentSceneLastFrameUrl
         } as GeneratedScene;
 
         const updatedStoryboardState = this.continuityAgent.updateStoryboardState(
@@ -279,8 +279,8 @@ class CinematicVideoWorkflow {
         scene,
         enhancedPrompt,
         state.storyboardState.characters,
-        undefined, // prev scene logic moved to continuity manager
-        undefined, // last frame url handling can be improved
+        state.storyboardState.scenes[state.currentSceneIndex - 1],
+        state.storyboardState.scenes[ state.currentSceneIndex - 1 ].lastFrameUrl,
         characterReferenceUrls,
         locationReferenceUrls,
         !state.hasAudio
@@ -491,7 +491,7 @@ async function main() {
     .argv;
 
   const videoId = argv.id || `video_${Date.now()}`;
-  const audioPath = argv.audio ?? LOCAL_AUDIO_PATH ?? undefined;
+  const audioPath = argv.audio || LOCAL_AUDIO_PATH || undefined;
 
   const workflow = new CinematicVideoWorkflow(projectId, videoId, bucketName);
 

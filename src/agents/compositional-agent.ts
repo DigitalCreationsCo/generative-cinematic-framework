@@ -94,9 +94,9 @@ export class CompositionalAgent {
         totalScenes: storyboard.scenes.length,
         duration: storyboard.scenes.length > 0 ? storyboard.scenes[ storyboard.scenes.length - 1 ].endTime : 0,
         creativePrompt: creativePrompt,
-        videoModel: (storyboard.metadata as any).videoModel ?? videoModelName,
-        imageModel: (storyboard.metadata as any).videoModel ?? imageModelName,
-        textModel: (storyboard.metadata as any).videoModel ?? textModelName,
+        videoModel: (storyboard.metadata as any).videoModel || videoModelName,
+        imageModel: (storyboard.metadata as any).videoModel || imageModelName,
+        textModel: (storyboard.metadata as any).videoModel || textModelName,
       } as Storyboard['metadata']
     };
 

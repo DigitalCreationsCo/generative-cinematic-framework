@@ -154,7 +154,7 @@ export class GCPStorageManager {
 
       case 'quality_evaluation': {
         const attemptNum = this.resolveAttempt(params.type, params.sceneId, params.attempt);
-        return path.posix.join(basePath, 'scenes', `scene_${params.sceneId.toString().padStart(3, '0')}_evaluation_${attemptNum.toString().padStart(2, '0')}.mp4`);
+        return path.posix.join(basePath, 'scenes', `scene_${params.sceneId.toString().padStart(3, '0')}_evaluation_${attemptNum.toString().padStart(2, '0')}.json`);
       }
 
       case 'stitched_video':

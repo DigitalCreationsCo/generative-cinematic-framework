@@ -134,7 +134,7 @@ export class SceneGeneratorAgent {
 
                 this.qualityAgent['logAttemptResult'](attempt, score, evaluation.overall);
 
-                if (score >= this.qualityAgent.qualityConfig.acceptThreshold) {
+                if (score >= this.qualityAgent.qualityConfig.minorIssueThreshold) {
                     console.log(`   ✅ Quality acceptable (${(score * 100).toFixed(1)}%)`);
                     return {
                         scene: generated,
@@ -370,7 +370,8 @@ export class SceneGeneratorAgent {
 
         const videoGenParams = buildVideoGenerationParams({
             prompt,
-            ...sourceParam,
+            // ...sourceParam, // veo2: 'Video and reference images cannot be both set.'
+            // ...imageParam,
             config: {
                 referenceImages: allReferenceImages,
                 generateAudio,
