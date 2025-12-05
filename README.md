@@ -50,6 +50,7 @@ Expand Creative Prompt → Generate Storyboard
               END
 ```
 
+```mermaid
 graph TD
     A[START] --> B{Resume?};
     B -- No --> C[expand_creative_prompt];
@@ -67,6 +68,7 @@ graph TD
     K -- Yes --> L[render_video];
     L --> M[finalize];
     M --> N[END];
+```
 
 ### Key Agents
 
