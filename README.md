@@ -11,11 +11,15 @@ Cinematic Framework leverages Google's Vertex AI (Gemini models) and LangGraph t
 - **Maintains visual continuity** across scenes using reference images for scene-to-scene consistency
 - **Produces cinematic videos** with proper shot composition, lighting, and camera movements
 - **Stitches scenes** into a final rendered video synchronized with audio
+- **Self-improves** its generation process by learning from quality-check feedback.
+- **Tracks learning metrics** to measure efficiency and quality improvements over time.
 
 ## Features
 
 - **Audio-Driven and/or Prompt-Based**: Generate videos from audio files (with automatic scene timing) and/or from creative prompts
-- **Multi-Agent Architecture**: Specialized agents for audio analysis, storyboard composition, character/location management, scene generation, and continuity tracking
+- **Multi-Agent Architecture**: Specialized agents for audio analysis, storyboard composition, character/location management, scene generation, and quality control
+- **Self-Improving Generation**: A `QualityCheckAgent` evaluates generated scenes and provides feedback. This feedback is used to refine a set of "Generation Rules" that guide subsequent scene generations, improving quality and consistency over time.
+- **Learning Metrics**: The framework tracks the number of attempts and quality scores for each scene, calculating trend lines to provide real-time feedback on whether the system is "learning" (i.e., requiring fewer attempts to generate high-quality scenes).
 - **Visual Continuity**: Maintains character appearance and location consistency using reference images and last-frame extraction
 - **Cinematic Quality**: Professional shot types, camera movements, lighting, and transitions
 - **Resume Capability**: Workflow can resume from checkpoints, avoiding regeneration of existing assets
@@ -29,8 +33,7 @@ The framework uses a **LangGraph state machine** to orchestrate the following wo
 ```mermaid
 graph TD
     A[START] --> B{Resume?};
-    B -- Has Scenes --> G[process_scene];
-    B -- Has Prompt --> E[generate_character_assets];
+    B -- Yes --> K[process_scene];
     B -- No --> C[expand_creative_prompt];
     C --> D{Has Audio?};
     D -- No --> H[generate_storyboard_exclusively_from_prompt];
@@ -45,15 +48,27 @@ graph TD
     K -- Yes --> L[render_video];
     L --> M[finalize];
     M --> N[END];
+    D -- Yes --> E[create_scenes_from_audio];
+    E --> F[enrich_storyboard_and_scenes];
+    D -- No --> G[generate_storyboard_exclusively_from_prompt];
+    F --> H[generate_character_assets];
+    G --> H;
+    H --> I[generate_location_assets];
+    I --> K;
+    K --> L{All Scenes Processed?};
+    L -- No --> K;
+    L -- Yes --> M[render_video];
+    M --> N[finalize];
+    N --> O[END];
 ```
 
 ### Key Agents
 
 1. **AudioProcessingAgent**: Analyzes audio files using Gemini's multimodal capabilities to extract musical structure, lyrics, tempo, mood, and generates timed scene templates
 2. **CompositionalAgent**: Expands creative prompts and generates comprehensive storyboards with characters, locations, cinematography, and narrative structure
-3. **ContinuityManagerAgent**: Manages character and location reference images, tracks continuity context across scenes
+3. **ContinuityManagerAgent**: Manages character and location reference images, tracks continuity context across scenes, and refines generation rules based on feedback
 4. **SceneGeneratorAgent**: Generates individual video clips using Google's video generation API with continuity constraints
-5. **FrameCompositionAgent**: Handles frame extraction and composite image generation for character continuity
+5. **QualityCheckAgent**: Evaluates generated scenes for quality and consistency, providing feedback for prompt corrections and rule generation.
 
 ## Prerequisites
 
@@ -246,49 +261,6 @@ npm run test:watch
 npm run coverage
 ```
 
-## Workflow Details
-
-### Phase 0: Creative Prompt Expansion (No Audio Mode)
-Expands user's creative prompt into a comprehensive cinematic blueprint with narrative structure, character details, and visual style.
-
-### Phase 1: Audio Processing / Storyboard Generation
-- **With Audio**: Analyzes audio to extract musical structure, segments, tempo, mood, and generates timed scene templates
-- **Without Audio**: Generates complete storyboard from expanded creative prompt with appropriate scene durations
-
-### Phase 1b: Storyboard Enhancement
-Enriches scene templates with:
-- Character definitions and physical descriptions
-- Location descriptions and lighting conditions
-- Shot types and camera movements
-- Continuity notes and transitions
-
-### Phase 2: Asset Generation
-- **Phase 2a**: Generates reference images for all characters
-- **Phase 2b**: Generates reference images for all locations
-
-### Phase 3: Scene Processing (Loop)
-For each scene:
-1. Prepares scene inputs with continuity context
-2. Generates enhanced prompt with character/location references
-3. Calls video generation API with:
-   - Enhanced prompt
-   - Previous frame for continuity
-   - Character reference images
-   - Location reference images
-4. Extracts last frame from generated video
-5. Updates continuity context
-6. Implements rate limit cooldown (30s between scenes)
-
-### Phase 4: Video Rendering
-- Downloads all scene videos from GCS
-- Stitches scenes using FFmpeg concatenation
-- Adds audio track if provided
-- Uploads final video to GCS
-
-### Phase 5: Finalization
-- Saves complete workflow output to JSON
-- Reports statistics and final URLs
-
 ## Security: Google Cloud Credentials
 
 ### Problem: Service Account Key Exposure
@@ -314,7 +286,7 @@ gcloud config set project YOUR_PROJECT_ID
 
 Then update your `.env`:
 ```bash
-GCP_PROJECT_ID="your-project-id"
+GCP_PROJECT_ID="your-gcp-project-id"
 GCP_BUCKET_NAME="your-bucket-name"
 # Remove or comment out GOOGLE_APPLICATION_CREDENTIALS
 ```
